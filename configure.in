@@ -1,0 +1,92 @@
+# Public domain
+
+REGISTER("--enable-static",	"Produce a static binary [default: no]")
+REGISTER("--enable-warnings",	"Suggested compiler warnings [default: no]")
+
+HDEFINE(VERSION, "1.0-beta")
+HDEFINE(RELEASE, "Slash Attack Enter Key")
+
+C_DEFINE(_VS_INTERNAL)
+C_DEFINE(_BSD_SOURCE)
+C_DEFINE(_USE_AGAR_CORE)
+C_DEFINE(_USE_AGAR_QUEUE)
+C_DEFINE(_USE_AGAR_STD)
+C_DEFINE(_USE_AGAR_TYPES)
+C_DEFINE(_USE_AGAR_GUI)
+
+# Configure our bundled copy of PortAudio
+echo "* Configuring bundled PortAudio..."
+(cd portaudio && \
+    env CFLAGS="-O2 -g" CXXFLAGS="-O2 -g" \
+    ./configure --prefix=$PREFIX --libdir=$PREFIX/lib/vislak)
+if [ $? != 0 ]; then
+	echo "*"
+	echo "* Failed to configure PortAudio"
+	echo "*"
+	exit 1
+fi
+echo "* PortAudio configured successfully"
+
+CHECK(cc)
+CHECK(agar, 1.4.0)
+CHECK(agar-math, 1.4.0)
+CHECK(jpeg, 6)
+CHECK(alsa)
+CHECK(sndfile)
+
+if [ "${HAVE_AGAR}" != "yes" ]; then
+	echo "This application requires the Agar library."
+	echo "Download it from: http://libagar.org/"
+	exit 1
+fi
+if [ "${HAVE_AGAR_MATH}" != "yes" ]; then
+	echo "This application requires the Agar-Math library."
+	echo "Download it from: http://libagar.org/"
+	exit 1
+fi
+if [ "${HAVE_SNDFILE}" != "yes" ]; then
+	echo "This application requires the libsndfile library."
+	echo "Fetch it from: http://www.mega-nerd.com/libsndfile."
+	exit 1
+fi
+
+MDEFINE(LIBDIR, "$PREFIX/lib/vislak")
+HDEFINE(LIBDIR, "$PREFIX/lib/vislak")
+MDEFINE(SHAREDIR, "$PREFIX/share/vislak")
+HDEFINE(SHAREDIR, "$PREFIX/share/vislak")
+MDEFINE(MODULEDIR, "$PREFIX/lib/vislak")
+HDEFINE(MODULEDIR, "$PREFIX/lib/vislak")
+
+# Set up our include paths.
+C_INCDIR($SRC)
+C_INCDIR($SRC/portaudio/include)
+
+# Disable improper warnings.
+C_NO_SECURE_WARNINGS()
+
+if [ "${enable_warnings}" = "yes" ]; then
+	C_OPTION(-Wall)
+	C_OPTION(-Werror)
+	C_OPTION(-Wno-unused)
+	C_OPTION(-Wmissing-prototypes)
+fi
+if [ "${enable_static}" = "yes" ]; then
+	MDEFINE(LDFLAGS, "-static")
+fi
+
+# Enable NLS if requested explicitely.
+if [ "${enable_nls}" = "yes" ]; then
+	CHECK(gettext)
+	if [ "${HAVE_GETTEXT}" != "yes" ]; then
+		echo "*"
+		echo "* --enable-nls was given but gettext was not found. Try"
+		echo "* running configure again without this option."
+		echo "*"
+		exit 1
+	fi
+fi
+
+echo "*"
+echo "* Configuration successful."
+echo "* Use make && make install to build and install this application."
+echo "*"
