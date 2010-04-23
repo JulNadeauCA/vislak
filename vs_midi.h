@@ -4,6 +4,7 @@
 #define _VISLAK_MIDI_H_
 
 struct vs_midi_pvt;
+struct vs_frame;
 
 #define VS_MIDI_MAXKEYS	256
 
@@ -20,6 +21,9 @@ __BEGIN_DECLS
 VS_Midi *VS_MidiNew(struct vs_view *);
 void     VS_MidiDestroy(VS_Midi *);
 void     VS_MidiDevicesMenu(VS_Midi *, AG_MenuItem *, Uint);
+void     VS_MidiAddKey(VS_Midi *, int, struct vs_frame *);
+void     VS_MidiDelKey(VS_Midi *, int);
+Uint     VS_MidiClearKeys(VS_Midi *);
 __END_DECLS
 
 #endif /* _VISLAK_MIDI_H_ */

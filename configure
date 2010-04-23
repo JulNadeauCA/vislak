@@ -330,8 +330,6 @@ echo "    --with-libtool            Specify path to libtool [use bundled]"
 echo "    --with-cygwin             Add cygwin dependencies under cygwin [no]"
 echo "    --enable-nls              Native Language Support [no]"
 echo "    --with-gettext            Use gettext tools [check]"
-echo "    --enable-static           Produce a static binary [default: no]"
-echo "    --enable-warnings         Suggested compiler warnings [default: no]"
 exit 1
 fi
 
@@ -535,16 +533,6 @@ echo "#ifndef SYSCONFDIR" > config/sysconfdir.h
 echo "#define SYSCONFDIR \"${SYSCONFDIR}\"" >> config/sysconfdir.h
 echo "#endif /* SYSCONFDIR */" >> config/sysconfdir.h
 
-VERSION="1.0-beta"
-echo "#ifndef VERSION" > config/version.h
-echo "#define VERSION \"$VERSION\"" >> config/version.h
-echo "#endif" >> config/version.h
-echo "hdefs[\"VERSION\"] = \"$VERSION\"" >>configure.lua
-RELEASE="Slash Attack Enter Key"
-echo "#ifndef RELEASE" > config/release.h
-echo "#define RELEASE \"$RELEASE\"" >> config/release.h
-echo "#endif" >> config/release.h
-echo "hdefs[\"RELEASE\"] = \"$RELEASE\"" >>configure.lua
 CFLAGS="$CFLAGS -D_VS_INTERNAL"
 CXXFLAGS="$CXXFLAGS -D_VS_INTERNAL"
 echo "CFLAGS=$CFLAGS" >>Makefile.config
@@ -1574,7 +1562,7 @@ elif [ $MK_VERSION_MAJOR -eq 1 ]; then
 			if [ "$MK_VERSION_MICRO" = "" ]; then
 				MK_VERSION_OK="yes"
 			else
-				if [ $MK_VERSION_MICRO -ge 0 ]; then
+				if [ $MK_VERSION_MICRO -ge 1 ]; then
 					MK_VERSION_OK="yes"
 				fi
 			fi
@@ -1584,7 +1572,7 @@ fi
 if [ "$MK_VERSION_OK" != "yes" ]; then
 	echo "*"
 	echo "* Found Agar version $MK_VERSION_MAJOR.$MK_VERSION_MINOR.$MK_VERSION_MICRO."
-	echo "* This software requires at least version 1.4.0."
+	echo "* This software requires at least version 1.4.1."
 	echo "* Please upgrade Agar and try again."
 	echo "*"
 	exit 1
@@ -1791,7 +1779,7 @@ elif [ $MK_VERSION_MAJOR -eq 1 ]; then
 			if [ "$MK_VERSION_MICRO" = "" ]; then
 				MK_VERSION_OK="yes"
 			else
-				if [ $MK_VERSION_MICRO -ge 0 ]; then
+				if [ $MK_VERSION_MICRO -ge 1 ]; then
 					MK_VERSION_OK="yes"
 				fi
 			fi
@@ -1801,7 +1789,7 @@ fi
 if [ "$MK_VERSION_OK" != "yes" ]; then
 	echo "*"
 	echo "* Found Agar version $MK_VERSION_MAJOR.$MK_VERSION_MINOR.$MK_VERSION_MICRO."
-	echo "* This software requires at least version 1.4.0."
+	echo "* This software requires at least version 1.4.1."
 	echo "* Please upgrade Agar and try again."
 	echo "*"
 	exit 1
@@ -2280,6 +2268,28 @@ fi
 if [ "${SNDFILE_VERSION}" != "" ]; then
 echo "yes"
 echo "yes" >> config.log
+MK_VERSION_MAJOR=`echo "$SNDFILE_VERSION" |sed 's/\([0-9]*\).\([0-9]*\).\([0-9]*\).*/\1/'`;
+MK_VERSION_MINOR=`echo "$SNDFILE_VERSION" |sed 's/\([0-9]*\).\([0-9]*\).\([0-9]*\).*/\2/'`;
+MK_VERSION_OK="no"
+if [ $MK_VERSION_MAJOR -gt 0 ]; then
+	MK_VERSION_OK="yes";
+elif [ $MK_VERSION_MAJOR -eq 0 ]; then
+	if [ "$MK_VERSION_MINOR" = "" ]; then
+		MK_VERSION_OK="yes"
+	else
+		if [ $MK_VERSION_MINOR -ge 23 ]; then
+			MK_VERSION_OK="yes"
+		fi
+	fi
+fi
+if [ "$MK_VERSION_OK" != "yes" ]; then
+	echo "*"
+	echo "* Found sndfile version $MK_VERSION_MAJOR.$MK_VERSION_MINOR."
+	echo "* This software requires at least version 0.23."
+	echo "* Please upgrade sndfile and try again."
+	echo "*"
+	exit 1
+fi
 $ECHO_N "checking whether libsndfile works..."
 $ECHO_N "checking whether libsndfile works..." >> config.log
 MK_CACHED="No"
@@ -2358,24 +2368,6 @@ echo "no" >> config.log
 echo "#undef HAVE_SNDFILE" >config/have_sndfile.h
 echo "hdefs[\"HAVE_SNDFILE\"] = nil" >>configure.lua
 fi;
-if [ "${HAVE_AGAR}" != "yes" ]
- then
-	echo "This application requires the Agar library."
-	echo "Download it from: http://libagar.org/"
-	exit 1
-fi
-if [ "${HAVE_AGAR_MATH}" != "yes" ]
- then
-	echo "This application requires the Agar-Math library."
-	echo "Download it from: http://libagar.org/"
-	exit 1
-fi
-if [ "${HAVE_SNDFILE}" != "yes" ]
- then
-	echo "This application requires the libsndfile library."
-	echo "Fetch it from: http://www.mega-nerd.com/libsndfile."
-	exit 1
-fi
 LIBDIR="$PREFIX/lib/vislak"
 echo "LIBDIR=$LIBDIR" >>Makefile.config
 echo "mdefs[\"LIBDIR\"] = \"$LIBDIR\"" >>configure.lua
@@ -2438,12 +2430,6 @@ echo "CFLAGS=$CFLAGS" >>Makefile.config
 echo "mdefs[\"CFLAGS\"] = \"$CFLAGS\"" >>configure.lua
 echo "CXXFLAGS=$CXXFLAGS" >>Makefile.config
 echo "mdefs[\"CXXFLAGS\"] = \"$CXXFLAGS\"" >>configure.lua
-fi
-if [ "${enable_static}" = "yes" ]
- then
-LDFLAGS="-static"
-echo "LDFLAGS=$LDFLAGS" >>Makefile.config
-echo "mdefs[\"LDFLAGS\"] = \"$LDFLAGS\"" >>configure.lua
 fi
 if [ "${enable_nls}" = "yes" ]
  then
@@ -2704,5 +2690,5 @@ fi;
 fi
 echo "*"
 echo "* Configuration successful."
-echo "* Use make && make install to build and install this application."
+echo "* Use make && make install to build and install Vislak."
 echo "*"

@@ -37,6 +37,7 @@
 
 int vsPlayerButtonHeight = 20;
 int vsPlayerCompensation = 0;
+int vsPlayerEnableComp = 0;
 
 VS_Player *
 VS_PlayerNew(void *parent, Uint flags, struct vs_view *vv)
@@ -478,10 +479,12 @@ AudioUpdateMono(const void *pIn, void *pOut, Ulong count,
 		vc->sndPos++;
 	}
 
-	vsPlayerCompensation = vc->sndPos - vp->vv->xOffs*vc->samplesPerFrame;
-	if (vsPlayerCompensation > vc->samplesPerFrame*2 ||
-	    vsPlayerCompensation < vc->samplesPerFrame*2) {
-		vc->sndPos = vp->vv->xOffs*vc->samplesPerFrame;
+	if (vsPlayerEnableComp) {
+		vsPlayerCompensation = vc->sndPos - vp->vv->xOffs*vc->samplesPerFrame;
+		if (vsPlayerCompensation > vc->samplesPerFrame*2 ||
+		    vsPlayerCompensation < vc->samplesPerFrame*2) {
+			vc->sndPos = vp->vv->xOffs*vc->samplesPerFrame;
+		}
 	}
 	return (paContinue);
 }

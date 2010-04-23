@@ -28,7 +28,6 @@
  */
 
 #include <vislak.h>
-#include "vs_midi.h"
 #include "vs_view.h"
 #include "icons.h"
 
@@ -88,7 +87,68 @@ VS_MidiDestroy(VS_Midi *mid)
 	Free(mid);
 }
 
+/* Create a MIDI key->frame mapping */
+void
+VS_MidiAddKey(VS_Midi *mid, int key, VS_Frame *vf)
+{
+	mid->keymap[key] = vf->f;
+	vf->midiKey = key;
+}
+
+/* Remove a MIDI key->frame mapping */
+void
+VS_MidiDelKey(VS_Midi *mid, int key)
+{
+	mid->keymap[key] = -1;
+}
+
+/* Clear MIDI keymap */
+Uint
+VS_MidiClearKeys(VS_Midi *mid)
+{
+	Uint i, nCleared = 0, f;
+	VS_Clip *vc = mid->vv->clip;
+
+	for (i = 0; i < VS_MIDI_MAXKEYS; i++) {
+		if ((f = mid->keymap[i]) != -1) {
+			mid->keymap[i] = -1;
+			nCleared++;
+		}
+	}
+	for (i = 0; i < vc->n; i++) {
+		vc->frames[i].midiKey = -1;
+	}
+	return (nCleared);
+}
+
+static void
+RepartitionMIDI(VS_View *vv, int start, int end)
+{
+	VS_Midi *mid = vv->clip->midi;
+	Uint i, j, key;
+	Uint div, nMapped = 0;
+
+	div = (Uint)(end - start)/60;
+	key = 36;
+	for (i = start, j = 0;
+	     i < end;
+	     i++) {
+		vv->clip->frames[i].midiKey = key;
+		if (++j > div) {
+			j = 0;
+			key++;
+		}
+		mid->keymap[key] = i;
+		nMapped++;
+	}
+	AG_LabelText(vsStatus, _("Mapped %u MIDI keys (%d-%d)"),
+	    nMapped, start, end);
+}
+
 #ifdef HAVE_ALSA
+/*
+ * MIDI input loop.
+ */
 static void *
 VS_MidiInputThread(void *arg)
 {
@@ -97,6 +157,7 @@ VS_MidiInputThread(void *arg)
 	Uchar ch, data[2];
 	int key, vel;
 	double bend = 0.0;
+	int repStart = 0, repSize = 0;
 
 	for (;;) {
 		snd_rawmidi_read(mid->pvt->in, &ch, 1);
@@ -110,9 +171,8 @@ VS_MidiInputThread(void *arg)
 			}
 			if (vsLearning &&
 			    vv->xSel >= 0 && vv->xSel < vv->clip->n) {
-				VS_Frame *vf = &vv->clip->frames[vv->xSel];
-				vf->midiKey = key;
-				mid->keymap[vf->midiKey] = vv->xSel;
+				VS_MidiAddKey(mid, key,
+				    &vv->clip->frames[vv->xSel]);
 			} else {
 				if (mid->keymap[key] != -1) {
 					vv->xOffs = mid->keymap[key];
@@ -122,12 +182,23 @@ VS_MidiInputThread(void *arg)
 			break;
 		case 0xb4:					/* Controller */
 			snd_rawmidi_read(mid->pvt->in, data, 2);
-			if (data[0] == 0x1) {
+			switch (data[0]) {
+			case 0x1:
 				vsBendSpeed = 1.0 +
 				    ((double)(127 - data[1])/127.0)*vsBendSpeedMax;
 				vv->xVel = bend/vsBendSpeed;
-			} else {
+				break;
+			case 0xa:
+				repStart = data[1]*(vv->clip->n - 1)/127;
+				RepartitionMIDI(vv, repStart, repSize);
+				break;
+			case 0x1c:
+				repSize = data[1]*(vv->clip->n - 1)/127;
+				RepartitionMIDI(vv, repStart, repSize);
+				break;
+			default:
 				vv->xOffs = data[1]*(vv->clip->n-1)/127;
+				break;
 			}
 			break;
 		case 0xe4:					/* Pitch bend */
@@ -136,13 +207,14 @@ VS_MidiInputThread(void *arg)
 			vv->xVel = bend/vsBendSpeed;
 			break;
 		default:
-			fprintf(stderr, "MIDI unk: ch=0x%x\n",
-			    ch);
 			break;
 		}
 	}
 }
 
+/*
+ * MIDI output loop.
+ */
 static void *
 VS_MidiOutputThread(void *arg)
 {

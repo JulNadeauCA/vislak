@@ -43,7 +43,6 @@
 #include "vislak.h"
 #include "vs_view.h"
 #include "vs_player.h"
-#include "vs_midi.h"
 #include "icons.h"
 #include "icons_data.h"
 
@@ -57,15 +56,16 @@ int   vsFileLast = -1;				/* Last frame to load (or -1) */
 int   vsThumbSz = 128;				/* Thumbnail size in pixels */
 int   vsWaveSz = 64;				/* Waveform size in pixels */
 int   Rflag = 0;				/* Load files randomly */
-int   vsFrameRate = 30;				/* Output frame rate */
+int   vsFrameRate = 20;				/* Output frame rate */
+int   vsFrameRateEff = 20;			/* Effective frame rate */
 
 AG_Mutex vsProcLock;				/* Lock on processing thread */
 VS_ProcOp vsProcOp = VS_PROC_INIT;		/* Processing thread status */
 int       vsRecording = 0;			/* Recording in progress */
 VS_Player *vsPlaying = NULL;			/* Playback in progress */
 int       vsLearning = 0;			/* Learning MIDI keys */
-double    vsBendSpeed = 10.0;
-double    vsBendSpeedMax = 50.0;
+double    vsBendSpeed = 2.0;
+double    vsBendSpeedMax = 40.0;
 
 AG_Thread thProc;				/* Main processing thread */
 AG_Window *wMain;				/* Main GUI window */
@@ -183,7 +183,7 @@ LoadVideoRandom(VS_Clip *vc)
 	char path[AG_PATHNAME_MAX];
 	AG_Dir *d;
 	AG_FileInfo fi;
-	int i, nFrame = 1;
+	int i;
 
 	if ((d = AG_OpenDir(vsInputDir)) == NULL) {
 		return (-1);
@@ -209,7 +209,7 @@ LoadVideoRandom(VS_Clip *vc)
 			continue;
 		}
 		AG_LabelText(vsStatus, _("Importing: %s"), filename);
-		if (VS_ClipAddFrame(vc, path, nFrame++) == -1) {
+		if (VS_ClipAddFrame(vc, path) == -1) {
 			goto fail;
 		}
 		pbVal++;
@@ -248,7 +248,7 @@ LoadVideoSorted(VS_Clip *vc)
 			fileOk = 0;
 		} else {
 			AG_LabelText(vsStatus, _("Importing: %s"), file);
-			fileOk = (VS_ClipAddFrame(vc, path, i) == 0) ? 1 : 0;
+			fileOk = (VS_ClipAddFrame(vc, path) == 0) ? 1 : 0;
 		}
 		pbVal++;
 		i++;
@@ -290,7 +290,6 @@ ProcessThread(void *ptr)
 	char pathOut[AG_PATHNAME_MAX];
 	Uint32 t1, t2 = 0;
 	int rCur = 0;
-	int rNom = (1000/vsFrameRate);
 	int rIdleThresh = 10;
 	int delta;
 	Uint fIn;
@@ -300,13 +299,13 @@ ProcessThread(void *ptr)
 		t2 = AG_GetTicks();
 
 		if (vsProcOp == VS_PROC_IDLE &&
-		    t2-t1 >= rNom) {
+		    t2-t1 >= (1000/vsFrameRateEff)) {
 			AG_MutexLock(&vsProcLock);
 
 			if (vsRecording) {
 				AG_MutexLock(&vcInput->lock);
 				AG_MutexLock(&vcOutput->lock);
-				fIn = vvInput->xOffs+1;
+				fIn = vvInput->xOffs;
 				if (VS_ClipCopyFrame(vcOutput, vcInput, fIn)
 				    == -1) {
 					AG_LabelText(vsStatus,
@@ -316,7 +315,7 @@ ProcessThread(void *ptr)
 				}
 
 				snprintf(pathIn, sizeof(pathIn),
-				    "%s/%08u.jpg", vsInputDir, fIn);
+				    "%s/%08u.jpg", vsInputDir, fIn+1);
 				snprintf(pathOut, sizeof(pathOut),
 				    "%s/%08u.jpg", vsOutputDir, vcOutput->n-1);
 relink:
@@ -333,6 +332,8 @@ relink:
 				AG_MutexUnlock(&vcOutput->lock);
 				AG_MutexUnlock(&vcInput->lock);
 			}
+	
+			vcOutput->samplesPerFrame = vcOutput->sndInfo.samplerate/vsFrameRateEff;
 
 			if (vvInput->xVel < -1.0 ||
 			    vvInput->xVel > +1.0) {		/* >=1 frame */
@@ -368,7 +369,7 @@ relink:
 
 			/* Update the effective refresh rate */
 			t1 = AG_GetTicks();
-			rCur = rNom - (t1-t2);
+			rCur = (1000/vsFrameRateEff) - (t1-t2);
 			if (rCur < 1) { rCur = 1; }
 
 			AG_MutexUnlock(&vsProcLock);
@@ -671,7 +672,7 @@ main(int argc, char *argv[])
 	vsMenu = AG_MenuNew(wMain, AG_MENU_HFILL);
 	AG_WindowSetCaptionS(wMain, "ViSlak");
 	{
-		AG_Box *boxStatus;
+		AG_Box *boxStatus, *boxParams;
 		AG_Statusbar *sb;
 		AG_ProgressBar *pb;
 		AG_Numerical *num;
@@ -706,13 +707,28 @@ main(int argc, char *argv[])
 		{
 			sb = AG_StatusbarNew(boxStatus, AG_STATUSBAR_HFILL);
 			vsStatus = AG_StatusbarAddLabel(sb, AG_LABEL_STATIC, "OK");
+		
+			boxParams = AG_BoxNewVert(boxStatus, AG_BOX_VFILL);
+			{
+				AG_CheckboxNewInt(boxParams, 0,
+				    _("Enable comp"),
+				    &vsPlayerEnableComp);
+				num = AG_NumericalNewDblR(boxParams, 0, NULL,
+				    _("Bend: "), &vsBendSpeed, 1.0, vsBendSpeedMax);
+				num = AG_NumericalNewIntR(boxParams, 0, NULL,
+				    _("FPS: "), &vsFrameRateEff, 1, 60);
+			}
+			
+			AG_SeparatorNewVert(boxStatus);
 
-			num = AG_NumericalNewDblR(boxStatus, 0, NULL,
-			    _("Bend: "), &vsBendSpeed, 1.0, vsBendSpeedMax);
-
-			lbl = AG_LabelNewPolled(boxStatus, 0, "Comp: %i",
-			    &vsPlayerCompensation);
-			AG_LabelSizeHint(lbl, 1, "<Comp: XXXXX>");
+			lbl = AG_LabelNewPolled(boxStatus, 0,
+			    "Comp=%i\n"
+			    "In.FPS=%i\n",
+			    &vsPlayerCompensation,
+			    &vsFrameRate);
+			AG_LabelSizeHint(lbl, 2, "<Comp: XXXXX>");
+			
+			AG_SeparatorNewVert(boxStatus);
 
 			pb = AG_ProgressBarNew(boxStatus,
 			    AG_PROGRESS_BAR_HORIZ, AG_PROGRESS_BAR_SHOW_PCT);
@@ -754,9 +770,9 @@ main(int argc, char *argv[])
 	m = AG_MenuAddItem(vsMenu, _("MIDI"));
 	{
 		mNode = AG_MenuNode(m, _("MIDI Input"), vsIconControls.s);
-		VS_MidiDevicesMenu(vvInput->midi, mNode, VS_MIDI_INPUT);
+		VS_MidiDevicesMenu(vvInput->clip->midi, mNode, VS_MIDI_INPUT);
 		mNode = AG_MenuNode(m, _("MIDI Output"), vsIconControls.s);
-		VS_MidiDevicesMenu(vvInput->midi, mNode, VS_MIDI_OUTPUT);
+		VS_MidiDevicesMenu(vvInput->clip->midi, mNode, VS_MIDI_OUTPUT);
 	}
 
 	/* Spawn the processing thread. */

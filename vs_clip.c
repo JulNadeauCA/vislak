@@ -27,8 +27,10 @@
 #include "vs_clip.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <jpeglib.h>
 #include <setjmp.h>
+#include <errno.h>
 
 VS_Clip *
 VS_ClipNew(void)
@@ -50,10 +52,12 @@ VS_ClipNew(void)
 	vc->sndVizFrames = 0;
 	vc->sndStream = NULL;
 	vc->samplesPerFrame = 0;
+	vc->midi = NULL;
 	memset(&vc->sndInfo, 0, sizeof(vc->sndInfo));
 
 	AG_MutexInitRecursive(&vc->lock);
 	AG_MutexInitRecursive(&vc->sndLock);
+
 	return (vc);
 }
 
@@ -190,7 +194,7 @@ fail:
 
 /* Create a frame from image file */
 int
-VS_ClipAddFrame(VS_Clip *vc, const char *path, Uint fno)
+VS_ClipAddFrame(VS_Clip *vc, const char *path)
 {
 	VS_Frame *framesNew, *vf;
 	FILE *f;
@@ -208,7 +212,7 @@ VS_ClipAddFrame(VS_Clip *vc, const char *path, Uint fno)
 	vc->frames = framesNew;
 	vf = &vc->frames[vc->n++];
 	vf->thumb = NULL;
-	vf->f = fno;
+	vf->f = (vc->n-1);
 	vf->flags = 0;
 	vf->midiKey = -1;
 	if ((s = strrchr(path, '.')) != NULL && s[1] != '\0') {
@@ -227,23 +231,60 @@ fail:
 	return (-1);
 }
 
+/* Delete a range of frames. */
 void
-VS_ClipDelFrame(VS_Clip *vc, Uint f)
+VS_ClipDelFrames(VS_Clip *vc, Uint f1, Uint f2)
 {
+	char pathOld[AG_PATHNAME_MAX];
+	char pathNew[AG_PATHNAME_MAX];
+	Uint i;
+
+	if (f2 == (vc->n-1)) {
+		vc->n -= (f2-f1);
+		return;
+	}
+
+	/* Delete frames f1 through f2. */
+	for (i = f1; i < f2; i++) {
+		VS_Frame *vf = &vc->frames[i];
+
+		if (vf->thumb != NULL)
+			AG_SurfaceFree(vf->thumb);
+		if (vc->midi != NULL && vf->midiKey != -1)
+			VS_MidiDelKey(vc->midi, vf->midiKey);
+
+		VS_ClipGetFramePath(vc, i, pathOld, sizeof(pathOld));
+		if (unlink(pathOld) == -1)
+			fprintf(stderr, "%s: %s\n", pathOld, strerror(errno));
+	}
+	memmove(&vc->frames[f1], &vc->frames[f2], (f2-f1)*sizeof(VS_Frame));
+
+	/* Renumber the remaining frames. */
+	for (i = f2; i < vc->n; i++) {
+		VS_ClipGetFramePath(vc, i, pathOld, sizeof(pathOld));
+		VS_ClipGetFramePath(vc, i - (f2-f1), pathNew, sizeof(pathNew));
+		if (rename(pathOld, pathNew) == -1) {
+			fprintf(stderr, "Rename %s -> %s: %s\n",
+			    pathOld, pathNew,
+			    strerror(errno));
+		}
+		vc->frames[i].f = i;
+	}
+	vc->n -= (f2-f1);
 }
 
 /* Append a frame from another clip into a clip. */
 int
-VS_ClipCopyFrame(VS_Clip *vcDst, VS_Clip *vcSrc, Uint fno)
+VS_ClipCopyFrame(VS_Clip *vcDst, VS_Clip *vcSrc, Uint f)
 {
 	VS_Frame *framesNew;
 	VS_Frame *vfDst, *vfSrc;
 
-	if (fno >= vcSrc->n) {
-		AG_SetError("No such frame: %u", fno);
+	if (f >= vcSrc->n) {
+		AG_SetError("No such frame: %u", f);
 		return (-1);
 	}
-	vfSrc = &vcSrc->frames[fno];
+	vfSrc = &vcSrc->frames[f];
 
 	if ((framesNew = AG_TryRealloc(vcDst->frames,
 	    (vcDst->n+1)*sizeof(VS_Frame))) == NULL) {
@@ -254,7 +295,7 @@ VS_ClipCopyFrame(VS_Clip *vcDst, VS_Clip *vcSrc, Uint fno)
 	vcDst->frames = framesNew;
 	vfDst = &vcDst->frames[vcDst->n++];
 	vfDst->thumb = (vfSrc->thumb) ? AG_SurfaceDup(vfSrc->thumb) : NULL;
-	vfDst->f = fno;
+	vfDst->f = (vcDst->n-1);
 	vfDst->flags = 0;
 	vfDst->midiKey = -1;
 	AG_MutexUnlock(&vcDst->lock);
@@ -262,3 +303,14 @@ VS_ClipCopyFrame(VS_Clip *vcDst, VS_Clip *vcSrc, Uint fno)
 	return (0);
 }
 
+/* Return full path to image file associated with a video frame. */
+void
+VS_ClipGetFramePath(VS_Clip *vc, Uint f, char *dst, size_t dstLen)
+{
+	char file[AG_FILENAME_MAX];
+
+	snprintf(file, sizeof(file), vc->fileFmt, vsFileFirst+f);
+	Strlcpy(dst, (vc->dir != NULL) ? vc->dir : vsInputDir, dstLen);
+	Strlcat(dst, AG_PATHSEP, dstLen);
+	Strlcat(dst, file, dstLen);
+}

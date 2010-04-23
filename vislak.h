@@ -75,6 +75,7 @@ extern double vsBendSpeed;
 extern double vsBendSpeedMax;
 extern char vsInputDir[];
 extern int vsFrameRate;
+extern int vsFileFirst;
 
 static __inline__ void
 VS_SetProcessOp(VS_ProcOp op)

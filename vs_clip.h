@@ -6,6 +6,8 @@
 #include <sndfile.h>
 #include <portaudio.h>
 
+#include "vs_midi.h"
+
 typedef struct vs_frame {
 	AG_Surface *thumb;		/* Generated thumbnail */
 	Uint f;				/* Original frame# */
@@ -31,15 +33,17 @@ typedef struct vs_clip {
 	double     sndPeakSignal;	/* Signal peak in audio stream */
 	PaStream  *sndStream;		/* For PortAudio playback */
 	int        samplesPerFrame;	/* Audio samples per video frame */
+	VS_Midi    *midi;		/* MIDI settings */
 } VS_Clip;
 
 __BEGIN_DECLS
 VS_Clip *VS_ClipNew(void);
 void     VS_ClipDestroy(VS_Clip *);
 void     VS_ClipSetArchivePath(void *, const char *);
-int      VS_ClipAddFrame(VS_Clip *, const char *, Uint);
-void     VS_ClipDelFrame(VS_Clip *, Uint);
+int      VS_ClipAddFrame(VS_Clip *, const char *);
+void     VS_ClipDelFrames(VS_Clip *, Uint, Uint);
 int      VS_ClipCopyFrame(VS_Clip *, VS_Clip *, Uint);
+void     VS_ClipGetFramePath(VS_Clip *, Uint, char *, size_t);
 __END_DECLS
 
 #endif /* _VISLAK_CLIP_H_ */

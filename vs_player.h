@@ -44,6 +44,7 @@ typedef struct vs_player {
 
 __BEGIN_DECLS
 extern AG_WidgetClass vsPlayerClass;
+extern int vsPlayerEnableComp;
 extern int vsPlayerCompensation;
 
 VS_Player *VS_PlayerNew(void *, Uint, struct vs_view *);

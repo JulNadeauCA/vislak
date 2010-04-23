@@ -16,6 +16,7 @@ typedef struct vs_view {
 #define VS_VIEW_VFILL	0x02
 #define VS_VIEW_PANNING	0x10	/* Panning in progress */
 #define VS_VIEW_NOAUDIO	0x20	/* No audio waveform display */
+#define VS_VIEW_NOMIDI	0x40	/* No MIDI control */
 #define VS_VIEW_EXPAND	(VS_VIEW_HFILL|VS_VIEW_VFILL)
 
 	int wPre, hPre;			/* Requested geometry */
@@ -27,7 +28,6 @@ typedef struct vs_view {
 	int incr;			/* Scrolling increment */
 	VS_Clip *clip;			/* Video clip to display */
 	AG_PopupMenu *menu;		/* Popup menu */
-	void *midi;			/* MIDI interface (internal) */
 	int xSel;			/* Last selected frame */
 	double xVel;			/* Frame advance velocity */
 	double xVelCur;

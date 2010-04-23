@@ -25,7 +25,6 @@
 
 #include <vislak.h>
 #include "vs_view.h"
-#include "vs_midi.h"
 
 #include "icons.h"
 
@@ -74,6 +73,33 @@ MouseButtonUp(AG_Event *event)
 	}
 }
 
+/* Delete the selected frames */
+static void
+DeleteFrames(AG_Event *event)
+{
+	VS_View *vv = AG_PTR(1);
+	Uint i, j, nDeleted = 0;
+
+scan:
+	for (i = 0; i < vv->clip->n; i++) {
+		VS_Frame *vf = &vv->clip->frames[i];
+
+		/* Look for a continuous selection. */
+		for (j = i; j < vv->clip->n; j++) {
+			if (!(vv->clip->frames[j].flags & VS_FRAME_SELECTED))
+				break;
+		}
+		if (j == i) {
+			continue;
+		}
+		VS_ClipDelFrames(vv->clip, i, j);
+		nDeleted += (j-i);
+		goto scan;
+	}
+	AG_LabelText(vsStatus, _("Deleted %u frames"), nDeleted);
+}
+
+/* Select all frames */
 static void
 SelectAll(AG_Event *event)
 {
@@ -86,6 +112,7 @@ SelectAll(AG_Event *event)
 	AG_LabelText(vsStatus, _("Selected all frames"));
 }
 
+/* Unselect all frames */
 static void
 UnselectAll(AG_Event *event)
 {
@@ -98,28 +125,22 @@ UnselectAll(AG_Event *event)
 	AG_LabelText(vsStatus, _("Unselected all frames"));
 }
 
+/* Clear MIDI keymap */
 static void
 ClearKeymap(AG_Event *event)
 {
 	VS_View *vv = AG_PTR(1);
 	VS_Midi *mid;
-	Uint i, fno, nCleared = 0;
+	Uint nCleared;
 
-	if ((mid = vv->midi) == NULL) {
+	if ((mid = vv->clip->midi) == NULL) {
 		return;
 	}
-	for (i = 0; i < VS_MIDI_MAXKEYS; i++) {
-		if ((fno = mid->keymap[i]) != -1) {
-			if (fno < vv->clip->n) {
-				vv->clip->frames[fno].midiKey = -1;
-			}
-			mid->keymap[i] = -1;
-			nCleared++;
-		}
-	}
+	nCleared = VS_MidiClearKeys(mid);
 	AG_LabelText(vsStatus, _("Cleared %u MIDI key mappings"), nCleared);
 }
 
+/* Create a default MIDI keymap scaled to the video length. */
 static void
 PartitionKeymap(AG_Event *event)
 {
@@ -128,7 +149,7 @@ PartitionKeymap(AG_Event *event)
 	Uint i, j, key;
 	Uint div, nMapped = 0;
 
-	if ((mid = vv->midi) == NULL) {
+	if ((mid = vv->clip->midi) == NULL) {
 		return;
 	}
 	div = (Uint)vv->clip->n/60;
@@ -147,6 +168,7 @@ PartitionKeymap(AG_Event *event)
 	AG_LabelText(vsStatus, _("Mapped %u MIDI keys"), nMapped);
 }
 
+/* Initialize a 1:1 MIDI keymap */
 static void
 InitKeymap11(AG_Event *event)
 {
@@ -154,7 +176,7 @@ InitKeymap11(AG_Event *event)
 	VS_Midi *mid;
 	Uint i, key;
 
-	if ((mid = vv->midi) == NULL) {
+	if ((mid = vv->clip->midi) == NULL) {
 		return;
 	}
 	for (i = 0, key = 36;
@@ -173,12 +195,17 @@ PopupMenu(VS_View *vv, int x, int y)
 	AG_MenuItem *m;
 
 	m = AG_MenuNode(pm->item, _("MIDI Input"), NULL);
-	VS_MidiDevicesMenu(vv->midi, m, VS_MIDI_INPUT);
+	VS_MidiDevicesMenu(vv->clip->midi, m, VS_MIDI_INPUT);
 	m = AG_MenuNode(pm->item, _("MIDI Output"), NULL);
-	VS_MidiDevicesMenu(vv->midi, m, VS_MIDI_OUTPUT);
+	VS_MidiDevicesMenu(vv->clip->midi, m, VS_MIDI_OUTPUT);
 	AG_MenuSeparator(pm->item);
-	AG_MenuAction(pm->item, _("Select all"), vsIconEdit.s, SelectAll, "%p", vv);
-	AG_MenuAction(pm->item, _("Unselect all"), vsIconEdit.s, UnselectAll, "%p", vv);
+	AG_MenuActionKb(pm->item, _("Delete frames"), agIconTrash.s,
+	    AG_KEY_DELETE, 0, DeleteFrames, "%p", vv);
+	AG_MenuSeparator(pm->item);
+	AG_MenuActionKb(pm->item, _("Select all"), vsIconEdit.s,
+	    AG_KEY_A, AG_KEYMOD_CTRL, SelectAll, "%p", vv);
+	AG_MenuAction(pm->item, _("Unselect all"), vsIconEdit.s,
+	    UnselectAll, "%p", vv);
 
 	m = AG_MenuNode(pm->item, _("MIDI Keymap"), NULL);
 	AG_MenuBoolMp(m, _("Learn mode"), vsIconControls.s, /* XXX icon */
@@ -217,8 +244,9 @@ MouseButtonDown(AG_Event *event)
 		break;
 	case AG_MOUSE_LEFT:
 		f = vv->xOffs + x/vsThumbSz;
-		if (f > 0 && f < vv->clip->n) {
+		if (f >= 0 && f < vv->clip->n) {
 			VS_Frame *vf = &vv->clip->frames[f];
+			int i, fSel;
 
 			if (ms & AG_KEYMOD_CTRL) {
 				if (vf->flags & VS_FRAME_SELECTED) {
@@ -226,6 +254,26 @@ MouseButtonDown(AG_Event *event)
 				} else {
 					vf->flags |= VS_FRAME_SELECTED;
 				} 
+			} else if (ms & AG_KEYMOD_SHIFT) {
+				for (fSel = 0; fSel < vv->clip->n; fSel++) {
+					if (vv->clip->frames[fSel].flags &
+					    VS_FRAME_SELECTED)
+						break;
+				}
+				if (fSel == vv->clip->n) {
+					fSel = 0;
+				}
+				if (f < fSel) {
+					for (i = f; i < fSel; i++) {
+						vv->clip->frames[i].flags
+						    |= VS_FRAME_SELECTED;
+					}
+				} else {
+					for (i = f; i > fSel; i--) {
+						vv->clip->frames[i].flags
+						    |= VS_FRAME_SELECTED;
+					}
+				}
 			} else {
 				AG_EventArgs(&ev, "%p", vv);
 				UnselectAll(&ev);
@@ -245,6 +293,19 @@ MouseButtonDown(AG_Event *event)
 	}
 }
 
+static void
+KeyDown(AG_Event *event)
+{
+	VS_View *vv = AG_SELF();
+	int sym = AG_INT(1);
+	int mod = AG_INT(2);
+	
+	if (vv->clip == NULL) {
+		return;
+	}
+	AG_ExecKeyAction(vv, AG_ACTION_ON_KEYDOWN, sym, mod);
+}
+
 VS_View *
 VS_ViewNew(void *parent, Uint flags, VS_Clip *clip)
 {
@@ -257,6 +318,7 @@ VS_ViewNew(void *parent, Uint flags, VS_Clip *clip)
 
 	if (flags & VS_VIEW_HFILL) { AG_ExpandHoriz(vv); }
 	if (flags & VS_VIEW_VFILL) { AG_ExpandVert(vv); }
+	AGWIDGET(vv)->flags |= AG_WIDGET_FOCUSABLE;
 
 	vv->sb = AG_ScrollbarNew(vv, AG_SCROLLBAR_HORIZ, 0);
 	AG_BindUint(vv->sb, "value", &vv->xOffs);
@@ -264,11 +326,27 @@ VS_ViewNew(void *parent, Uint flags, VS_Clip *clip)
 	AG_BindUint(vv->sb, "visible", &vv->xVis);
 	AG_ScrollbarSetIntIncrement(vv->sb, 1);
 
-	/* Allow mouse panning */
-	AGWIDGET(vv)->flags |= AG_WIDGET_FOCUSABLE;
+	/* Tie the clip's MIDI settings to this view. */
+	if (!(flags & VS_VIEW_NOMIDI)) {
+		if (clip->midi == NULL) {
+			clip->midi = VS_MidiNew(vv);
+		} else {
+			clip->midi->vv = vv;
+		}
+	}
+	
+	/*
+	 * Actions & Events
+	 */
+	AG_ActionFn(vv, "Select all", SelectAll, "%p", vv);
+	AG_ActionFn(vv, "Delete frames", DeleteFrames, "%p", vv);
+	AG_ActionOnKeyDown(vv, AG_KEY_A, AG_KEYMOD_CTRL, "Select all");
+	AG_ActionOnKeyDown(vv, AG_KEY_DELETE, AG_KEYMOD_ANY, "Delete frames");
+
 	AG_SetEvent(vv, "mouse-button-down", MouseButtonDown, NULL);
 	AG_SetEvent(vv, "mouse-button-up", MouseButtonUp, NULL);
 	AG_SetEvent(vv, "mouse-motion", MouseMotion, NULL);
+	AG_SetEvent(vv, "key-down", KeyDown, NULL);
 
 	VS_ViewSetIncrement(vv, 10);
 	AG_ObjectAttach(parent, vv);
@@ -300,16 +378,7 @@ Init(void *obj)
 	vv->sb = NULL;
 	vv->incr = 10;
 	vv->clip = NULL;
-	vv->midi = VS_MidiNew(vv);
 	vv->xVel = 0.0;
-}
-
-static void
-Destroy(void *obj)
-{
-	VS_View *vv = obj;
-
-	VS_MidiDestroy(vv->midi);
 }
 
 void
@@ -395,7 +464,7 @@ Draw(void *p)
 	/*
 	 * Render video frames.
 	 */
-	AG_DrawBox(vv, vv->rFrames, -1, AG_ColorRGB(82,88,19));
+	AG_DrawBox(vv, vv->rFrames, -1, AG_ColorRGB(100,100,100));
 	r = vv->rFrames;
 	r.w = vsThumbSz;
 
@@ -411,17 +480,11 @@ Draw(void *p)
 
 		AG_WidgetBlit(vv, vf->thumb, r.x, 0);
 		if (vf->flags & VS_FRAME_SELECTED) {
+			AG_DrawRectOutline(vv, r,
+			    AG_ColorRGB(250,250,250));
 			AG_DrawRectBlended(vv, r,
-			    AG_ColorRGBA(0,0,255,128),
+			    AG_ColorRGBA(0,0,255,64),
 			    AG_ALPHA_SRC);
-		}
-		if (i == vv->xSel) {
-			AG_DrawRectOutline(vv, r,
-			    AG_ColorRGB(255,250,0));
-		}
-		if (r.x == 0) {
-			AG_DrawRectOutline(vv, r,
-			    AG_ColorRGB(150,0,0));
 		}
 		if (vf->midiKey != -1) {
 			AG_Surface *s;
@@ -494,7 +557,7 @@ AG_WidgetClass vsViewClass = {
 		{ 0,0 },
 		Init,
 		NULL,			/* free */
-		Destroy,
+		NULL,			/* destroy */
 		NULL,			/* load */
 		NULL,			/* save */
 		NULL			/* edit */
