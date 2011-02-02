@@ -6,6 +6,10 @@ RELEASE("5l45H! 4TT4CK! 3NT3R! K3Y!")
 
 REGISTER_SECTION("Options specific to Vislak:")
 REGISTER("--enable-warnings",	"Suggested compiler warnings [default: no]")
+REGISTER("--with-agar[=PREFIX]", "Specify Agar location [default: auto-detect]")
+REGISTER("--with-jpeg[=PREFIX]", "Specify libjpeg location [default: auto-detect]")
+REGISTER("--with-alsa[=PREFIX]", "Specify ALSA location [default: auto-detect]")
+REGISTER("--with-sndfile[=PREFIX]", "Specify libsndfile location [default: auto-detect]")
 
 C_DEFINE(_VS_INTERNAL)
 C_DEFINE(_BSD_SOURCE)
@@ -29,11 +33,11 @@ fi
 echo "* PortAudio configured successfully"
 
 REQUIRE(cc)
-REQUIRE(agar, 1.4.1)
-REQUIRE(agar-math, 1.4.1)
-CHECK(jpeg, 6)
-CHECK(alsa)
-REQUIRE(sndfile, 0.23)
+REQUIRE(agar, 1.4.1, ${prefix_agar})
+REQUIRE(agar-math, 1.4.1, ${prefix_agar})
+CHECK(jpeg, 6, ${prefix_jpeg})
+CHECK(alsa, 0, ${prefix_alsa})
+REQUIRE(sndfile, 0, ${prefix_sndfile})
 
 MDEFINE(LIBDIR, "$PREFIX/lib/vislak")
 HDEFINE(LIBDIR, "$PREFIX/lib/vislak")
@@ -58,7 +62,7 @@ fi
 
 # Enable NLS if requested explicitely.
 if [ "${enable_nls}" = "yes" ]; then
-	CHECK(gettext)
+	CHECK(gettext, 0, ${prefix_gettext})
 	if [ "${HAVE_GETTEXT}" != "yes" ]; then
 		echo "*"
 		echo "* --enable-nls was given but gettext was not found. Try"
