@@ -748,7 +748,7 @@ main(int argc, char *argv[])
 	/*
 	 * Main application menu
 	 */
-	m = AG_MenuAddItem(vsMenu, _("File"));
+	m = AG_MenuNode(vsMenu->root, _("File"), NULL);
 	{
 		AG_MenuAction(m, _("Load video stream..."), agIconLoad.s,
 		    LoadVideoDlg, "%p", vcInput);
@@ -762,12 +762,12 @@ main(int argc, char *argv[])
 		    AG_KEY_Q, AG_KEYMOD_CTRL,
 		    VS_Quit, NULL);
 	}
-	m = AG_MenuAddItem(vsMenu, _("Edit"));
+	m = AG_MenuNode(vsMenu->root, _("Edit"), NULL);
 	{
 		AG_MenuBoolMp(m, _("MIDI learn mode"), vsIconControls.s, /* XXX icon */
 		    &vsLearning, 0, &vsProcLock);
 	}
-	m = AG_MenuAddItem(vsMenu, _("MIDI"));
+	m = AG_MenuNode(vsMenu->root, _("MIDI"), NULL);
 	{
 		mNode = AG_MenuNode(m, _("MIDI Input"), vsIconControls.s);
 		VS_MidiDevicesMenu(vvInput->clip->midi, mNode, VS_MIDI_INPUT);
