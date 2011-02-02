@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2001-2009 Hypertriton, Inc. <http://hypertriton.com/>
+# Copyright (c) 2001-2010 Hypertriton, Inc. <http://hypertriton.com/>
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -216,7 +216,9 @@ lib${LIB}.a: _lib_objs ${OBJS}
 	fi
 
 # Build a Libtool version of the library.
-lib${LIB}.la: ${LIBTOOL_COOKIE} _lib_shobjs ${SHOBJS}
+_lib_shobjs ${SHOBJS}: ${LIBTOOL_COOKIE}
+
+lib${LIB}.la: _lib_shobjs ${SHOBJS}
 	@if [ "${LIB}" != "" -a "${USE_LIBTOOL}" = "Yes" \
 	      -a "${SRCS}" != "none" ]; then \
 	    if [ "${SHOBJS}" = "none" ]; then \
@@ -473,8 +475,10 @@ includes:
 
 ${LIBTOOL_COOKIE}: ${LTCONFIG} ${LTMAIN_SH} ${LTCONFIG_GUESS} ${LTCONFIG_SUB}
 	@if [ "${LIB}" != "" -a "${USE_LIBTOOL}" = "Yes" ]; then \
-	    echo "${SH} ${LTCONFIG} ${LTMAIN_SH}"; \
-	    ${SH} ${LTCONFIG} ${LTMAIN_SH}; \
+	    echo "${SH} ${LTCONFIG} ${LTMAIN_SH} ${HOST}"; \
+	    env CC="${CC}" CXX="${CXX}" \
+	        CFLAGS="${CFLAGS}" CXXFLAGS="${CXXFLAGS}" \
+		${SH} ${LTCONFIG} ${LTMAIN_SH} ${HOST}; \
 	    if [ $? != 0 ]; then \
 	    	echo "${LTCONFIG} failed"; \
 	    	exit 1; \
