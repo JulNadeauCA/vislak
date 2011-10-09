@@ -1,8 +1,6 @@
 TOP=	.
 include Makefile.config
 
-SUBDIR=		portaudio
-
 PROJECT=	"vislak"
 
 PROG=		vislak
@@ -18,8 +16,7 @@ SRCS=	vislak.c \
 
 CFLAGS+=${AGAR_CFLAGS} ${AGAR_MATH_CFLAGS} ${GETTEXT_CFLAGS} ${JPEG_CFLAGS} \
 	${ALSA_CFLAGS} ${SNDFILE_CFLAGS}
-LIBS=	${AGAR_LIBS} ${AGAR_MATH_LIBS} ${GETTEXT_CFLAGS} ${JPEG_LIBS} \
-	-L${TOP}/portaudio/lib/.libs -Wl,-rpath,${PREFIX}/lib/vislak -lportaudio \
+LIBS=	${PORTAUDIO_LIBS} ${AGAR_LIBS} ${AGAR_MATH_LIBS} ${GETTEXT_CFLAGS} ${JPEG_LIBS} \
 	${ALSA_LIBS} ${SNDFILE_LIBS}
 
 all: all-subdir ${PROG}

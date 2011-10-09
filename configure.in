@@ -10,6 +10,8 @@ REGISTER("--with-agar[=PREFIX]", "Specify Agar location [default: auto-detect]")
 REGISTER("--with-jpeg[=PREFIX]", "Specify libjpeg location [default: auto-detect]")
 REGISTER("--with-alsa[=PREFIX]", "Specify ALSA location [default: auto-detect]")
 REGISTER("--with-sndfile[=PREFIX]", "Specify libsndfile location [default: auto-detect]")
+REGISTER("--with-portaudio[=PREFIX]",	"Use portaudio library [check]")
+REGISTER("--with-pthreads[=PREFIX]", "Specify libpthreads location [check]")
 
 C_DEFINE(_VS_INTERNAL)
 C_DEFINE(_BSD_SOURCE)
@@ -19,25 +21,14 @@ C_DEFINE(_USE_AGAR_STD)
 C_DEFINE(_USE_AGAR_TYPES)
 C_DEFINE(_USE_AGAR_GUI)
 
-# Configure our bundled copy of PortAudio
-echo "* Configuring bundled PortAudio..."
-(cd portaudio && \
-    env CFLAGS="-O2 -g" CXXFLAGS="-O2 -g" \
-    ./configure --prefix=$PREFIX --libdir=$PREFIX/lib/vislak)
-if [ $? != 0 ]; then
-	echo "*"
-	echo "* Failed to configure PortAudio"
-	echo "*"
-	exit 1
-fi
-echo "* PortAudio configured successfully"
-
 REQUIRE(cc)
 REQUIRE(agar, 1.4.1, ${prefix_agar})
 REQUIRE(agar-math, 1.4.1, ${prefix_agar})
 CHECK(jpeg, 6, ${prefix_jpeg})
 CHECK(alsa, 0, ${prefix_alsa})
 REQUIRE(sndfile, 0, ${prefix_sndfile})
+CHECK(pthreads, ${prefix_pthreads})
+REQUIRE(portaudio, 19.0, ${prefix_portaudio})
 
 MDEFINE(LIBDIR, "$PREFIX/lib/vislak")
 HDEFINE(LIBDIR, "$PREFIX/lib/vislak")
@@ -48,7 +39,6 @@ HDEFINE(MODULEDIR, "$PREFIX/lib/vislak")
 
 # Set up our include paths.
 C_INCDIR($SRC)
-C_INCDIR($SRC/portaudio/include)
 
 # Disable improper warnings.
 C_NO_SECURE_WARNINGS()

@@ -456,7 +456,13 @@ AudioUpdateStereo(const void *pIn, void *pOut, Ulong count,
 		vc->sndPos++;
 	}
 
-	//printf("diff = %d\n", vc->sndPos - vp->vv->xOffs*vc->samplesPerFrame);
+	if (vsPlayerEnableComp) {
+		vsPlayerCompensation = vc->sndPos - vp->vv->xOffs*vc->samplesPerFrame;
+		if (vsPlayerCompensation > vc->samplesPerFrame*2 ||
+		    vsPlayerCompensation < vc->samplesPerFrame*2) {
+			vc->sndPos = vp->vv->xOffs*vc->samplesPerFrame;
+		}
+	}
 	return (paContinue);
 }
 
@@ -489,6 +495,7 @@ AudioUpdateMono(const void *pIn, void *pOut, Ulong count,
 	return (paContinue);
 }
 
+#if 0
 static void
 VS_PlayerAudioFinishedCallback(void *pData)
 {
@@ -496,6 +503,7 @@ VS_PlayerAudioFinishedCallback(void *pData)
 
 	printf("audio finished!\n");
 }
+#endif
 
 /* Start audio playback */
 int
@@ -540,10 +548,12 @@ VS_PlayAudio(VS_Player *vp)
 		goto fail;
 	}
 
+#if 0
 	rv = Pa_SetStreamFinishedCallback(vc->sndStream,
 	    VS_PlayerAudioFinishedCallback);
 	if (rv != paNoError)
 		goto pafail;
+#endif
 
 	rv = Pa_StartStream(vc->sndStream);
 	if (rv != paNoError)

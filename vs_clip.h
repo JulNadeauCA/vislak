@@ -4,7 +4,7 @@
 #define _VISLAK_CLIP_H_
 
 #include <sndfile.h>
-#include <portaudio.h>
+#include <portaudio2/portaudio.h>
 
 #include "vs_midi.h"
 
