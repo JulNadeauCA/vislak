@@ -215,6 +215,7 @@ VS_ClipAddFrame(VS_Clip *vc, const char *path)
 	vf->f = (vc->n-1);
 	vf->flags = 0;
 	vf->midiKey = -1;
+	vf->kbdKey = 0;
 	if ((s = strrchr(path, '.')) != NULL && s[1] != '\0') {
 		if (!strcasecmp(&s[1], "jpg") ||
 		    !strcasecmp(&s[1], "jpeg")) {
@@ -239,14 +240,21 @@ VS_ClipDelFrames(VS_Clip *vc, Uint f1, Uint f2)
 	char pathNew[AG_PATHNAME_MAX];
 	Uint i;
 
+	printf("DELFRAMES(%u - %u)\n", f1, f2);
+
+#if 0
 	if (f2 == (vc->n-1)) {
+		printf("Trivial: n->%u\n", (f2-f1));
 		vc->n -= (f2-f1);
 		return;
 	}
+#endif
 
 	/* Delete frames f1 through f2. */
 	for (i = f1; i < f2; i++) {
 		VS_Frame *vf = &vc->frames[i];
+
+		printf("Deleting: f%d\n", i);
 
 		if (vf->thumb != NULL)
 			AG_SurfaceFree(vf->thumb);
@@ -257,12 +265,14 @@ VS_ClipDelFrames(VS_Clip *vc, Uint f1, Uint f2)
 		if (unlink(pathOld) == -1)
 			fprintf(stderr, "%s: %s\n", pathOld, strerror(errno));
 	}
+	printf("Memmove: f%d <- f%d (n=%d)\n", f1, f2, f2-f1);
 	memmove(&vc->frames[f1], &vc->frames[f2], (f2-f1)*sizeof(VS_Frame));
 
 	/* Renumber the remaining frames. */
 	for (i = f2; i < vc->n; i++) {
 		VS_ClipGetFramePath(vc, i, pathOld, sizeof(pathOld));
 		VS_ClipGetFramePath(vc, i - (f2-f1), pathNew, sizeof(pathNew));
+		printf("Rename: %s -> %s\n", pathOld, pathNew);
 		if (rename(pathOld, pathNew) == -1) {
 			fprintf(stderr, "Rename %s -> %s: %s\n",
 			    pathOld, pathNew,

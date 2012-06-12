@@ -14,6 +14,7 @@ typedef struct vs_frame {
 	Uint flags;
 #define VS_FRAME_SELECTED	0x01	/* Frame is selected */
 	int midiKey;			/* Assigned MIDI key */
+	int kbdKey;			/* Assigned keyboard key */
 } VS_Frame;
 
 typedef struct vs_clip {

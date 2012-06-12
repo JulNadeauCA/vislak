@@ -268,8 +268,7 @@ SetInputALSA(AG_Event *event)
 	}
 	mid->flags |= VS_MIDI_INPUT;
 	AG_LabelText(vsStatus, _("Opened input MIDI device: %s"), devname);
-	if (AG_ThreadCreate(&thInput, VS_MidiInputThread, mid) != 0)
-		AG_TextError(_("Failed to create MIDI input thread"));
+	AG_ThreadCreate(&thInput, VS_MidiInputThread, mid);
 }
 static void
 SetOutputALSA(AG_Event *event)
@@ -293,8 +292,7 @@ SetOutputALSA(AG_Event *event)
 	}
 	mid->flags |= VS_MIDI_OUTPUT;
 	AG_LabelText(vsStatus, _("Opened output MIDI device: %s"), devname);
-	if (AG_ThreadCreate(&thOutput, VS_MidiOutputThread, mid) != 0)
-		AG_TextError(_("Failed to create MIDI output thread"));
+	AG_ThreadCreate(&thOutput, VS_MidiOutputThread, mid);
 }
 
 static int
@@ -432,9 +430,10 @@ MenuDevicesALSA(VS_Midi *mid, AG_MenuItem *m, snd_ctl_t *ctl, int card,
 #endif /* HAVE_ALSA */
 
 void
-VS_MidiDevicesMenu(VS_Midi *mid, AG_MenuItem *m, Uint flags)
+VS_MidiDevicesMenu(VS_Midi *mid, AG_MenuItem *pm, Uint flags)
 {
 #ifdef HAVE_ALSA
+	AG_MenuItem *m;
 	int card = -1, rv;
 
 	if ((rv = snd_card_next(&card)) < 0) {
@@ -442,9 +441,12 @@ VS_MidiDevicesMenu(VS_Midi *mid, AG_MenuItem *m, Uint flags)
 		return;
 	}
 	if (card < 0) {
-		AG_MenuDisable(m);
+		AG_MenuSection(m, _("(No MIDI Devices)"));
 		return;
 	}
+
+	m = AG_MenuNode(pm, (flags & VS_MIDI_INPUT) ?
+	                    _("MIDI Input") : _("MIDI Output"), NULL);
 	do {
 		snd_ctl_t *ctl;
 		char dev[32];

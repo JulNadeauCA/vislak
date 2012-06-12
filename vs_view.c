@@ -192,32 +192,38 @@ static void
 PopupMenu(VS_View *vv, int x, int y)
 {
 	AG_PopupMenu *pm = AG_PopupNew(vv);
-	AG_MenuItem *m;
+	AG_MenuItem *m = pm->item;
+	AG_MenuItem *mMIDI, *mMIDIKeymap;
+	
+	AG_MenuBoolMp(m, _("Key Learn Mode"), vsIconControls.s, /* XXX icon */
+	    &vsLearning, 0, &vsProcLock);
 
-	m = AG_MenuNode(pm->item, _("MIDI Input"), NULL);
-	VS_MidiDevicesMenu(vv->clip->midi, m, VS_MIDI_INPUT);
-	m = AG_MenuNode(pm->item, _("MIDI Output"), NULL);
-	VS_MidiDevicesMenu(vv->clip->midi, m, VS_MIDI_OUTPUT);
-	AG_MenuSeparator(pm->item);
-	AG_MenuActionKb(pm->item, _("Delete frames"), agIconTrash.s,
+	AG_MenuSeparator(m);
+
+	AG_MenuActionKb(m, _("Delete selected"), agIconTrash.s,
 	    AG_KEY_DELETE, 0, DeleteFrames, "%p", vv);
-	AG_MenuSeparator(pm->item);
-	AG_MenuActionKb(pm->item, _("Select all"), vsIconEdit.s,
+
+	AG_MenuSeparator(m);
+
+	AG_MenuActionKb(m, _("Select all"), vsIconEdit.s,
 	    AG_KEY_A, AG_KEYMOD_CTRL, SelectAll, "%p", vv);
-	AG_MenuAction(pm->item, _("Unselect all"), vsIconEdit.s,
+	AG_MenuAction(m, _("Unselect all"), vsIconEdit.s,
 	    UnselectAll, "%p", vv);
 
-	m = AG_MenuNode(pm->item, _("MIDI Keymap"), NULL);
-	AG_MenuBoolMp(m, _("Learn mode"), vsIconControls.s, /* XXX icon */
-	    &vsLearning, 0, &vsProcLock);
 	AG_MenuSeparator(m);
-	AG_MenuAction(m, _("Clear keymap"), agIconTrash.s,
-	    ClearKeymap, "%p", vv);
-	AG_MenuAction(m, _("Partition keymap"), vsIconControls.s,
-	    PartitionKeymap, "%p", vv);
-	AG_MenuAction(m, _("Init keymap 1:1"), vsIconControls.s,
-	    InitKeymap11, "%p", vv);
 
+	mMIDI = AG_MenuNode(m, _("MIDI"), NULL);
+	{
+		VS_MidiDevicesMenu(vv->clip->midi, mMIDI, VS_MIDI_INPUT);
+		VS_MidiDevicesMenu(vv->clip->midi, mMIDI, VS_MIDI_OUTPUT);
+		mMIDIKeymap = AG_MenuNode(mMIDI, _("MIDI Keymap"), NULL);
+		AG_MenuAction(mMIDIKeymap, _("Clear keymap"), agIconTrash.s,
+		    ClearKeymap, "%p", vv);
+		AG_MenuAction(mMIDIKeymap, _("Partition keymap"), vsIconControls.s,
+		    PartitionKeymap, "%p", vv);
+		AG_MenuAction(mMIDIKeymap, _("Init keymap 1:1"), vsIconControls.s,
+		    InitKeymap11, "%p", vv);
+	}
 	AG_PopupShowAt(pm, x, y);
 }
 
@@ -452,9 +458,6 @@ Draw(void *p)
 	VS_Clip *vc = vv->clip;
 	AG_Rect r;
 	Uint i;
-
-	if (vsProcOp != VS_PROC_IDLE)
-		return;
 
 	if (vv->rFrames.h <= 0 && vv->rAudio.h <= 0)
 		return;

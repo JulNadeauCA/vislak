@@ -55,7 +55,6 @@ int   vsFileFirst = 1;				/* First frame to load */
 int   vsFileLast = -1;				/* Last frame to load (or -1) */
 int   vsThumbSz = 128;				/* Thumbnail size in pixels */
 int   vsWaveSz = 64;				/* Waveform size in pixels */
-int   Rflag = 0;				/* Load files randomly */
 int   vsFrameRate = 20;				/* Output frame rate */
 int   vsFrameRateEff = 20;			/* Effective frame rate */
 
@@ -63,7 +62,7 @@ AG_Mutex vsProcLock;				/* Lock on processing thread */
 VS_ProcOp vsProcOp = VS_PROC_INIT;		/* Processing thread status */
 int       vsRecording = 0;			/* Recording in progress */
 VS_Player *vsPlaying = NULL;			/* Playback in progress */
-int       vsLearning = 0;			/* Learning MIDI keys */
+int       vsLearning = 0;			/* Key learning mode */
 double    vsBendSpeed = 2.0;
 double    vsBendSpeedMax = 40.0;
 
@@ -176,59 +175,18 @@ fail:
 	return (-1);
 }
 
-/* Load frames in directory (without sorting). */
-static int
-LoadVideoRandom(VS_Clip *vc)
-{
-	char path[AG_PATHNAME_MAX];
-	AG_Dir *d;
-	AG_FileInfo fi;
-	int i;
-
-	if ((d = AG_OpenDir(vsInputDir)) == NULL) {
-		return (-1);
-	}
-	pbVal = 0;
-	pbMax = d->nents;
-	for (i = 0; i < d->nents; i++) {
-		char *filename = d->ents[i];
-
-		if (filename[0] == '.') {
-			pbVal++;
-			continue;
-		}
-		Strlcpy(path, vsInputDir, sizeof(path));
-		Strlcat(path, AG_PATHSEP, sizeof(path));
-		Strlcat(path, filename, sizeof(path));
-		if (AG_GetFileInfo(path, &fi) == -1) {
-			pbVal++;
-			continue;
-		}
-		if (fi.type == AG_FILE_DIRECTORY) {
-			pbVal++;
-			continue;
-		}
-		AG_LabelText(vsStatus, _("Importing: %s"), filename);
-		if (VS_ClipAddFrame(vc, path) == -1) {
-			goto fail;
-		}
-		pbVal++;
-	}
-	AG_CloseDir(d);
-	return (0);
-fail:
-	AG_CloseDir(d);
-	return (-1);
-}
-
 /* Load frames in directory (sorted per filename). */
 static int
-LoadVideoSorted(VS_Clip *vc)
+LoadVideoDir(VS_Clip *vc)
 {
 	char path[AG_PATHNAME_MAX], file[AG_FILENAME_MAX];
 	AG_Dir *d;
 	Uint i;
 	int fileOk;
+	
+	pbMin = 0;
+	pbVal = 0;
+	pbMax = 0;
 
 	if ((d = AG_OpenDir(vsInputDir)) == NULL) {
 		return (-1);
@@ -255,28 +213,8 @@ LoadVideoSorted(VS_Clip *vc)
 	} while (fileOk && (vsFileLast == -1 || i < vsFileLast));
 
 	pbVal = pbMax;
+	AG_LabelText(vsStatus, _("Loaded %u video frames"), vc->n);
 	return (0);
-}
-
-/* Import frames from disk. */
-static int
-LoadVideo(VS_Clip *vc)
-{
-	int rv;
-
-	pbMin = 0;
-	pbVal = 0;
-	pbMax = 0;
-	if (Rflag) {
-		rv = LoadVideoRandom(vc);
-	} else {
-		rv = LoadVideoSorted(vc);
-	}
-	if (rv == 0) {
-		AG_LabelText(vsStatus, _("Video import successful (%u frames)"),
-		    vc->n);
-	}
-	return (rv);
 }
 
 /*
@@ -378,7 +316,7 @@ relink:
 			switch (vsProcOp) {
 			case VS_PROC_LOAD_VIDEO:
 				AG_MutexUnlock(&vsProcLock);
-				if (LoadVideo(vcInput) == -1) {
+				if (LoadVideoDir(vcInput) == -1) {
 					AG_LabelText(vsStatus,
 					    _("Video import failed: %s"),
 					    AG_GetError());
@@ -764,15 +702,13 @@ main(int argc, char *argv[])
 	}
 	m = AG_MenuNode(vsMenu->root, _("Edit"), NULL);
 	{
-		AG_MenuBoolMp(m, _("MIDI learn mode"), vsIconControls.s, /* XXX icon */
+		AG_MenuBoolMp(m, _("Key learn mode"), vsIconControls.s, /* XXX icon */
 		    &vsLearning, 0, &vsProcLock);
 	}
 	m = AG_MenuNode(vsMenu->root, _("MIDI"), NULL);
 	{
-		mNode = AG_MenuNode(m, _("MIDI Input"), vsIconControls.s);
-		VS_MidiDevicesMenu(vvInput->clip->midi, mNode, VS_MIDI_INPUT);
-		mNode = AG_MenuNode(m, _("MIDI Output"), vsIconControls.s);
-		VS_MidiDevicesMenu(vvInput->clip->midi, mNode, VS_MIDI_OUTPUT);
+		VS_MidiDevicesMenu(vvInput->clip->midi, m, VS_MIDI_INPUT);
+		VS_MidiDevicesMenu(vvInput->clip->midi, m, VS_MIDI_OUTPUT);
 	}
 
 	/* Spawn the processing thread. */
