@@ -626,6 +626,7 @@ main(int argc, char *argv[])
 			vvInput = VS_ViewNew(pa->div[0],
 			    VS_VIEW_NOAUDIO|VS_VIEW_EXPAND,
 			    vcInput);
+			AG_WidgetFocus(vvInput);
 		}
 		{
 			AG_LabelNewPolled(pa->div[0], AG_LABEL_HFILL,

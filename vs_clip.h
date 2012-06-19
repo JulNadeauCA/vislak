@@ -35,6 +35,7 @@ typedef struct vs_clip {
 	PaStream  *sndStream;		/* For PortAudio playback */
 	int        samplesPerFrame;	/* Audio samples per video frame */
 	VS_Midi    *midi;		/* MIDI settings */
+	int         kbdKeymap[AG_KEY_LAST]; /* Keyboard frame mappings */
 } VS_Clip;
 
 __BEGIN_DECLS
@@ -45,6 +46,7 @@ int      VS_ClipAddFrame(VS_Clip *, const char *);
 void     VS_ClipDelFrames(VS_Clip *, Uint, Uint);
 int      VS_ClipCopyFrame(VS_Clip *, VS_Clip *, Uint);
 void     VS_ClipGetFramePath(VS_Clip *, Uint, char *, size_t);
+Uint     VS_ClipClearKeys(VS_Clip *);
 __END_DECLS
 
 #endif /* _VISLAK_CLIP_H_ */

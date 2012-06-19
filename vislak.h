@@ -76,6 +76,7 @@ extern double vsBendSpeedMax;
 extern char vsInputDir[];
 extern int vsFrameRate;
 extern int vsFileFirst;
+extern int vsKbdKeymap[AG_KEY_LAST];	/* Key->frame mappings */
 
 static __inline__ void
 VS_SetProcessOp(VS_ProcOp op)

@@ -31,6 +31,9 @@ typedef struct vs_view {
 	int xSel;			/* Last selected frame */
 	double xVel;			/* Frame advance velocity */
 	double xVelCur;
+	int kbdCenter;
+	float kbdVal;
+	AG_Timeout toKbdMove;
 } VS_View;
 
 __BEGIN_DECLS

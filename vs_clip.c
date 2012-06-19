@@ -36,6 +36,7 @@ VS_Clip *
 VS_ClipNew(void)
 {
 	VS_Clip *vc;
+	int i;
 
 	if ((vc = AG_TryMalloc(sizeof(VS_Clip))) == NULL) {
 		return (NULL);
@@ -55,10 +56,30 @@ VS_ClipNew(void)
 	vc->midi = NULL;
 	memset(&vc->sndInfo, 0, sizeof(vc->sndInfo));
 
+	for (i = 0; i < AG_KEY_LAST; i++) {
+		vc->kbdKeymap[i] = -1;
+	}
+
 	AG_MutexInitRecursive(&vc->lock);
 	AG_MutexInitRecursive(&vc->sndLock);
 
 	return (vc);
+}
+
+/* Clear the KBD keymap */
+Uint
+VS_ClipClearKeys(VS_Clip *vc)
+{
+	Uint i, nCleared = 0;
+	
+	for (i = 0; i < AG_KEY_LAST; i++) {
+		if (vc->kbdKeymap[i] != 0) {
+			vc->kbdKeymap[i] = 0;
+			vc->frames[i].kbdKey = -1;
+			nCleared++;
+		}
+	}
+	return (nCleared);
 }
 
 void
@@ -203,19 +224,18 @@ VS_ClipAddFrame(VS_Clip *vc, const char *path)
 	if ((f = fopen(path, "rb")) == NULL) {
 		return (-1);
 	}
+	AG_MutexLock(&vc->lock);
 	if ((framesNew = AG_TryRealloc(vc->frames, (vc->n+1)*sizeof(VS_Frame)))
 	    == NULL) {
 		goto fail;
 	}
-
-	AG_MutexLock(&vc->lock);
 	vc->frames = framesNew;
 	vf = &vc->frames[vc->n++];
 	vf->thumb = NULL;
 	vf->f = (vc->n-1);
 	vf->flags = 0;
 	vf->midiKey = -1;
-	vf->kbdKey = 0;
+	vf->kbdKey = -1;
 	if ((s = strrchr(path, '.')) != NULL && s[1] != '\0') {
 		if (!strcasecmp(&s[1], "jpg") ||
 		    !strcasecmp(&s[1], "jpeg")) {
@@ -224,10 +244,10 @@ VS_ClipAddFrame(VS_Clip *vc, const char *path)
 		}
 	}
 	AG_MutexUnlock(&vc->lock);
-
 	fclose(f);
 	return (0);
 fail:
+	AG_MutexUnlock(&vc->lock);
 	fclose(f);
 	return (-1);
 }
@@ -260,6 +280,8 @@ VS_ClipDelFrames(VS_Clip *vc, Uint f1, Uint f2)
 			AG_SurfaceFree(vf->thumb);
 		if (vc->midi != NULL && vf->midiKey != -1)
 			VS_MidiDelKey(vc->midi, vf->midiKey);
+		if (vf->kbdKey != -1)
+			vc->kbdKeymap[vf->kbdKey] = -1;
 
 		VS_ClipGetFramePath(vc, i, pathOld, sizeof(pathOld));
 		if (unlink(pathOld) == -1)
@@ -308,6 +330,7 @@ VS_ClipCopyFrame(VS_Clip *vcDst, VS_Clip *vcSrc, Uint f)
 	vfDst->f = (vcDst->n-1);
 	vfDst->flags = 0;
 	vfDst->midiKey = -1;
+	vfDst->kbdKey = -1;
 	AG_MutexUnlock(&vcDst->lock);
 	AG_MutexUnlock(&vcSrc->lock);
 	return (0);

@@ -435,6 +435,9 @@ VS_MidiDevicesMenu(VS_Midi *mid, AG_MenuItem *pm, Uint flags)
 #ifdef HAVE_ALSA
 	AG_MenuItem *m;
 	int card = -1, rv;
+	
+	m = AG_MenuNode(pm, (flags & VS_MIDI_INPUT) ?
+	                    _("MIDI Input") : _("MIDI Output"), NULL);
 
 	if ((rv = snd_card_next(&card)) < 0) {
 		AG_MenuSection(m, "(%s)", snd_strerror(rv));
@@ -445,8 +448,6 @@ VS_MidiDevicesMenu(VS_Midi *mid, AG_MenuItem *pm, Uint flags)
 		return;
 	}
 
-	m = AG_MenuNode(pm, (flags & VS_MIDI_INPUT) ?
-	                    _("MIDI Input") : _("MIDI Output"), NULL);
 	do {
 		snd_ctl_t *ctl;
 		char dev[32];

@@ -23,6 +23,8 @@
  * USE OF THIS SOFTWARE EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <ctype.h>
+
 #include <vislak.h>
 #include "vs_view.h"
 
@@ -75,9 +77,8 @@ MouseButtonUp(AG_Event *event)
 
 /* Delete the selected frames */
 static void
-DeleteFrames(AG_Event *event)
+DeleteFrames(VS_View *vv)
 {
-	VS_View *vv = AG_PTR(1);
 	Uint i, j, nDeleted = 0;
 
 scan:
@@ -101,9 +102,8 @@ scan:
 
 /* Select all frames */
 static void
-SelectAll(AG_Event *event)
+SelectAllFrames(VS_View *vv)
 {
-	VS_View *vv = AG_PTR(1);
 	Uint i;
 
 	for (i = 0; i < vv->clip->n; i++) {
@@ -114,9 +114,8 @@ SelectAll(AG_Event *event)
 
 /* Unselect all frames */
 static void
-UnselectAll(AG_Event *event)
+UnselectAllFrames(VS_View *vv)
 {
-	VS_View *vv = AG_PTR(1);
 	Uint i;
 
 	for (i = 0; i < vv->clip->n; i++) {
@@ -125,9 +124,21 @@ UnselectAll(AG_Event *event)
 	AG_LabelText(vsStatus, _("Unselected all frames"));
 }
 
+/* Clear KBD keymap */
+static void
+ClearKeymapKBD(AG_Event *event)
+{
+	VS_View *vv = AG_PTR(1);
+	VS_Midi *mid;
+	Uint nCleared;
+
+	nCleared = VS_ClipClearKeys(vv->clip);
+	AG_LabelText(vsStatus, _("Cleared %u key mappings"), nCleared);
+}
+
 /* Clear MIDI keymap */
 static void
-ClearKeymap(AG_Event *event)
+ClearKeymapMIDI(AG_Event *event)
 {
 	VS_View *vv = AG_PTR(1);
 	VS_Midi *mid;
@@ -142,7 +153,7 @@ ClearKeymap(AG_Event *event)
 
 /* Create a default MIDI keymap scaled to the video length. */
 static void
-PartitionKeymap(AG_Event *event)
+PartitionKeymapMIDI(AG_Event *event)
 {
 	VS_View *vv = AG_PTR(1);
 	VS_Midi *mid;
@@ -170,7 +181,7 @@ PartitionKeymap(AG_Event *event)
 
 /* Initialize a 1:1 MIDI keymap */
 static void
-InitKeymap11(AG_Event *event)
+InitKeymap11MIDI(AG_Event *event)
 {
 	VS_View *vv = AG_PTR(1);
 	VS_Midi *mid;
@@ -193,22 +204,10 @@ PopupMenu(VS_View *vv, int x, int y)
 {
 	AG_PopupMenu *pm = AG_PopupNew(vv);
 	AG_MenuItem *m = pm->item;
-	AG_MenuItem *mMIDI, *mMIDIKeymap;
+	AG_MenuItem *mMIDI, *mKeymaps, *mSub;
 	
 	AG_MenuBoolMp(m, _("Key Learn Mode"), vsIconControls.s, /* XXX icon */
 	    &vsLearning, 0, &vsProcLock);
-
-	AG_MenuSeparator(m);
-
-	AG_MenuActionKb(m, _("Delete selected"), agIconTrash.s,
-	    AG_KEY_DELETE, 0, DeleteFrames, "%p", vv);
-
-	AG_MenuSeparator(m);
-
-	AG_MenuActionKb(m, _("Select all"), vsIconEdit.s,
-	    AG_KEY_A, AG_KEYMOD_CTRL, SelectAll, "%p", vv);
-	AG_MenuAction(m, _("Unselect all"), vsIconEdit.s,
-	    UnselectAll, "%p", vv);
 
 	AG_MenuSeparator(m);
 
@@ -216,14 +215,26 @@ PopupMenu(VS_View *vv, int x, int y)
 	{
 		VS_MidiDevicesMenu(vv->clip->midi, mMIDI, VS_MIDI_INPUT);
 		VS_MidiDevicesMenu(vv->clip->midi, mMIDI, VS_MIDI_OUTPUT);
-		mMIDIKeymap = AG_MenuNode(mMIDI, _("MIDI Keymap"), NULL);
-		AG_MenuAction(mMIDIKeymap, _("Clear keymap"), agIconTrash.s,
-		    ClearKeymap, "%p", vv);
-		AG_MenuAction(mMIDIKeymap, _("Partition keymap"), vsIconControls.s,
-		    PartitionKeymap, "%p", vv);
-		AG_MenuAction(mMIDIKeymap, _("Init keymap 1:1"), vsIconControls.s,
-		    InitKeymap11, "%p", vv);
 	}
+	
+	mKeymaps = AG_MenuNode(m, _("Keymaps"), NULL);
+	{
+		mSub = AG_MenuNode(mKeymaps, _("KBD Keymap"), NULL);
+		{
+			AG_MenuAction(mSub, _("Clear keymap"), agIconTrash.s,
+			    ClearKeymapKBD, "%p", vv);
+		}
+		mSub = AG_MenuNode(mKeymaps, _("MIDI Keymap"), NULL);
+		{
+			AG_MenuAction(mSub, _("Clear keymap"), agIconTrash.s,
+			    ClearKeymapMIDI, "%p", vv);
+			AG_MenuAction(mSub, _("Partition keymap"), vsIconControls.s,
+			    PartitionKeymapMIDI, "%p", vv);
+			AG_MenuAction(mSub, _("Initialize 1:1 keymap"), vsIconControls.s,
+			    InitKeymap11MIDI, "%p", vv);
+		}
+	}
+
 	AG_PopupShowAt(pm, x, y);
 }
 
@@ -281,8 +292,7 @@ MouseButtonDown(AG_Event *event)
 					}
 				}
 			} else {
-				AG_EventArgs(&ev, "%p", vv);
-				UnselectAll(&ev);
+				UnselectAllFrames(vv);
 				vf->flags |= VS_FRAME_SELECTED;
 			}
 			vv->xSel = f;
@@ -303,13 +313,68 @@ static void
 KeyDown(AG_Event *event)
 {
 	VS_View *vv = AG_SELF();
+	VS_Clip *vc = vv->clip;
 	int sym = AG_INT(1);
 	int mod = AG_INT(2);
-	
-	if (vv->clip == NULL) {
+
+	if (vc == NULL) {
 		return;
 	}
-	AG_ExecKeyAction(vv, AG_ACTION_ON_KEYDOWN, sym, mod);
+	if ((isalpha(sym) || isdigit(sym)) &&
+	    vsLearning &&
+	    vv->xSel >= 0 && vv->xSel < vc->n) {
+		vc->kbdKeymap[sym] = vv->xSel;
+		vc->frames[vv->xSel].kbdKey = sym;
+		AG_LabelText(vsStatus, _("Mapped %d -> f%d"), sym, vv->xSel);
+		return;
+	}
+	switch (sym) {
+	case AG_KEY_A:
+		if (mod & AG_KEYMOD_CTRL) {
+			SelectAllFrames(vv);
+			return;
+		}
+		break;
+	case AG_KEY_U:
+		if (mod & AG_KEYMOD_CTRL) {
+			UnselectAllFrames(vv);
+			return;
+		}
+		break;
+	case AG_KEY_DELETE:
+		DeleteFrames(vv);
+		return;
+	default:
+		break;
+	}
+	if (isalpha(sym) || isdigit(sym)) {
+		if (vc->kbdKeymap[sym] != -1) {
+			if (vv->kbdCenter != -1) {
+				AG_DelTimeout(vv, &vv->toKbdMove);
+			}
+			vv->xSel = vc->kbdKeymap[sym];
+			vv->kbdCenter = vc->kbdKeymap[sym];
+			vv->kbdVal = 0.0;
+			AG_ScheduleTimeout(vv, &vv->toKbdMove, 5);
+		}
+	}
+}
+
+static void
+KeyUp(AG_Event *event)
+{
+	VS_View *vv = AG_SELF();
+	VS_Clip *vc = vv->clip;
+	int sym = AG_INT(1);
+	int mod = AG_INT(2);
+
+	if (vc == NULL) {
+		return;
+	}
+	if (vv->kbdCenter != -1 && vv->kbdCenter == vc->kbdKeymap[sym]) {
+		AG_DelTimeout(vv, &vv->toKbdMove);
+		vv->kbdCenter = -1;
+	}
 }
 
 VS_View *
@@ -321,6 +386,7 @@ VS_ViewNew(void *parent, Uint flags, VS_Clip *clip)
 	AG_ObjectInit(vv, &vsViewClass);
 	vv->flags |= flags;
 	vv->clip = clip;
+	vv->incr = 1;
 
 	if (flags & VS_VIEW_HFILL) { AG_ExpandHoriz(vv); }
 	if (flags & VS_VIEW_VFILL) { AG_ExpandVert(vv); }
@@ -330,7 +396,8 @@ VS_ViewNew(void *parent, Uint flags, VS_Clip *clip)
 	AG_BindUint(vv->sb, "value", &vv->xOffs);
 	AG_BindUint(vv->sb, "max", &vv->clip->n);
 	AG_BindUint(vv->sb, "visible", &vv->xVis);
-	AG_ScrollbarSetIntIncrement(vv->sb, 1);
+	AG_ScrollbarSetIntIncrement(vv->sb, 10);
+	AG_WidgetSetFocusable(vv->sb, 0);
 
 	/* Tie the clip's MIDI settings to this view. */
 	if (!(flags & VS_VIEW_NOMIDI)) {
@@ -341,20 +408,12 @@ VS_ViewNew(void *parent, Uint flags, VS_Clip *clip)
 		}
 	}
 	
-	/*
-	 * Actions & Events
-	 */
-	AG_ActionFn(vv, "Select all", SelectAll, "%p", vv);
-	AG_ActionFn(vv, "Delete frames", DeleteFrames, "%p", vv);
-	AG_ActionOnKeyDown(vv, AG_KEY_A, AG_KEYMOD_CTRL, "Select all");
-	AG_ActionOnKeyDown(vv, AG_KEY_DELETE, AG_KEYMOD_ANY, "Delete frames");
-
 	AG_SetEvent(vv, "mouse-button-down", MouseButtonDown, NULL);
 	AG_SetEvent(vv, "mouse-button-up", MouseButtonUp, NULL);
 	AG_SetEvent(vv, "mouse-motion", MouseMotion, NULL);
 	AG_SetEvent(vv, "key-down", KeyDown, NULL);
+	AG_SetEvent(vv, "key-up", KeyUp, NULL);
 
-	VS_ViewSetIncrement(vv, 10);
 	AG_ObjectAttach(parent, vv);
 	return (vv);
 }
@@ -364,8 +423,24 @@ VS_ViewSetIncrement(VS_View *vv, int incr)
 {
 	AG_ObjectLock(vv);
 	vv->incr = incr;
-	if (vv->sb != NULL) { AG_ScrollbarSetIntIncrement(vv->sb, incr); }
 	AG_ObjectUnlock(vv);
+}
+
+static Uint32
+KbdMoveTimeout(void *obj, Uint32 ival, void *arg)
+{
+	VS_View *vv = obj;
+	int xOffs;
+
+	if (vv->clip->n == 0) { return (0); }
+
+	xOffs = vv->kbdCenter + (int)(sin(vv->kbdVal)*20.0);
+	if (xOffs < 0) { xOffs = 0; }
+	if (xOffs >= vv->clip->n) { xOffs = vv->clip->n - 1; }
+	vv->xOffs = xOffs;
+	vv->kbdVal += 0.05;
+
+	return (ival);
 }
 
 static void
@@ -385,6 +460,8 @@ Init(void *obj)
 	vv->incr = 10;
 	vv->clip = NULL;
 	vv->xVel = 0.0;
+	vv->kbdCenter = -1;
+	AG_SetTimeout(&vv->toKbdMove, KbdMoveTimeout, NULL, 0);
 }
 
 void
@@ -457,7 +534,7 @@ Draw(void *p)
 	VS_View *vv = p;
 	VS_Clip *vc = vv->clip;
 	AG_Rect r;
-	Uint i;
+	int i;
 
 	if (vv->rFrames.h <= 0 && vv->rAudio.h <= 0)
 		return;
@@ -477,7 +554,7 @@ Draw(void *p)
 
 	AG_PushClipRect(vv, vv->rFrames);
 	for (i = vv->xOffs;
-	     i < vv->clip->n && r.x < WIDTH(vv);
+	     i >= 0 && i < vv->clip->n && r.x < WIDTH(vv);
 	     i++) {
 		VS_Frame *vf = &vc->frames[i];
 
@@ -489,9 +566,14 @@ Draw(void *p)
 			    AG_ColorRGBA(0,0,255,64),
 			    AG_ALPHA_SRC);
 		}
+		if (vf->kbdKey != -1) {
+			AG_Surface *s;
+			s = AG_TextRenderf("%c", (char)vf->kbdKey);
+			AG_WidgetBlit(vv, s, r.x, 0);
+			AG_SurfaceFree(s);
+		}
 		if (vf->midiKey != -1) {
 			AG_Surface *s;
-			
 			s = AG_TextRenderf("%x", vf->midiKey);
 			AG_WidgetBlit(vv, s, r.x, 0);
 			AG_SurfaceFree(s);
