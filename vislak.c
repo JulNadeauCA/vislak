@@ -55,8 +55,8 @@ int   vsFileFirst = 1;				/* First frame to load */
 int   vsFileLast = -1;				/* Last frame to load (or -1) */
 int   vsThumbSz = 128;				/* Thumbnail size in pixels */
 int   vsWaveSz = 64;				/* Waveform size in pixels */
-int   vsFrameRate = 20;				/* Output frame rate */
-int   vsFrameRateEff = 20;			/* Effective frame rate */
+int   vsFrameRate = 30;				/* Output frame rate */
+int   vsFrameRateEff = 30;			/* Effective frame rate */
 
 AG_Mutex vsProcLock;				/* Lock on processing thread */
 VS_ProcOp vsProcOp = VS_PROC_INIT;		/* Processing thread status */
@@ -622,7 +622,7 @@ main(int argc, char *argv[])
 		pa = AG_PaneNewVert(paHoriz->div[0], AG_PANE_EXPAND);
 		{
 			AG_LabelNewPolled(pa->div[0], AG_LABEL_HFILL,
-			    _("Input (%u frames):"), &vcInput->n);
+			    "Input (%u frames):", &vcInput->n);
 			vvInput = VS_ViewNew(pa->div[0],
 			    VS_VIEW_NOAUDIO|VS_VIEW_EXPAND,
 			    vcInput);
@@ -630,7 +630,7 @@ main(int argc, char *argv[])
 		}
 		{
 			AG_LabelNewPolled(pa->div[0], AG_LABEL_HFILL,
-			    _("Output (%u frames):"), &vcOutput->n);
+			    "Output (%u frames):", &vcOutput->n);
 			vvOutput = VS_ViewNew(pa->div[1],
 			    VS_VIEW_EXPAND,
 			    vcOutput);
@@ -645,7 +645,7 @@ main(int argc, char *argv[])
 		boxStatus = AG_BoxNewHoriz(wMain, AG_BOX_HFILL);
 		{
 			sb = AG_StatusbarNew(boxStatus, AG_STATUSBAR_HFILL);
-			vsStatus = AG_StatusbarAddLabel(sb, AG_LABEL_STATIC, "OK");
+			vsStatus = AG_StatusbarAddLabel(sb, "OK");
 		
 			boxParams = AG_BoxNewVert(boxStatus, AG_BOX_VFILL);
 			{

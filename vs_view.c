@@ -309,6 +309,23 @@ MouseButtonDown(AG_Event *event)
 	}
 }
 
+static Uint32
+KbdMoveTimeout(AG_Timer *to, AG_Event *event)
+{
+	VS_View *vv = AG_SELF();
+	int xOffs;
+
+	if (vv->clip->n == 0) { return (0); }
+
+	xOffs = vv->kbdCenter + (int)(sin(vv->kbdVal)*20.0);
+	if (xOffs < 0) { xOffs = 0; }
+	if (xOffs >= vv->clip->n) { xOffs = vv->clip->n - 1; }
+	vv->xOffs = xOffs;
+	vv->kbdVal += 0.05;
+
+	return (to->ival);
+}
+
 static void
 KeyDown(AG_Event *event)
 {
@@ -350,12 +367,13 @@ KeyDown(AG_Event *event)
 	if (isalpha(sym) || isdigit(sym)) {
 		if (vc->kbdKeymap[sym] != -1) {
 			if (vv->kbdCenter != -1) {
-				AG_DelTimeout(vv, &vv->toKbdMove);
+				AG_DelTimer(vv, &vv->toKbdMove);
 			}
 			vv->xSel = vc->kbdKeymap[sym];
 			vv->kbdCenter = vc->kbdKeymap[sym];
 			vv->kbdVal = 0.0;
-			AG_ScheduleTimeout(vv, &vv->toKbdMove, 5);
+			AG_AddTimer(vv, &vv->toKbdMove, 5,
+			    KbdMoveTimeout, NULL);
 		}
 	}
 }
@@ -372,7 +390,7 @@ KeyUp(AG_Event *event)
 		return;
 	}
 	if (vv->kbdCenter != -1 && vv->kbdCenter == vc->kbdKeymap[sym]) {
-		AG_DelTimeout(vv, &vv->toKbdMove);
+		AG_DelTimer(vv, &vv->toKbdMove);
 		vv->kbdCenter = -1;
 	}
 }
@@ -396,7 +414,7 @@ VS_ViewNew(void *parent, Uint flags, VS_Clip *clip)
 	AG_BindUint(vv->sb, "value", &vv->xOffs);
 	AG_BindUint(vv->sb, "max", &vv->clip->n);
 	AG_BindUint(vv->sb, "visible", &vv->xVis);
-	AG_ScrollbarSetIntIncrement(vv->sb, 10);
+	AG_SetUint(vv->sb, "inc", 10);
 	AG_WidgetSetFocusable(vv->sb, 0);
 
 	/* Tie the clip's MIDI settings to this view. */
@@ -426,23 +444,6 @@ VS_ViewSetIncrement(VS_View *vv, int incr)
 	AG_ObjectUnlock(vv);
 }
 
-static Uint32
-KbdMoveTimeout(void *obj, Uint32 ival, void *arg)
-{
-	VS_View *vv = obj;
-	int xOffs;
-
-	if (vv->clip->n == 0) { return (0); }
-
-	xOffs = vv->kbdCenter + (int)(sin(vv->kbdVal)*20.0);
-	if (xOffs < 0) { xOffs = 0; }
-	if (xOffs >= vv->clip->n) { xOffs = vv->clip->n - 1; }
-	vv->xOffs = xOffs;
-	vv->kbdVal += 0.05;
-
-	return (ival);
-}
-
 static void
 Init(void *obj)
 {
@@ -461,7 +462,6 @@ Init(void *obj)
 	vv->clip = NULL;
 	vv->xVel = 0.0;
 	vv->kbdCenter = -1;
-	AG_SetTimeout(&vv->toKbdMove, KbdMoveTimeout, NULL, 0);
 }
 
 void
@@ -480,7 +480,7 @@ SizeRequest(void *p, AG_SizeReq *r)
 	AG_SizeReq rBar;
 	
 	r->w = vv->wPre;
-	r->h = vv->hPre + AG_ScrollbarPrefWidth();
+	r->h = vv->hPre + agTextFontHeight;
 	if (!(vv->flags & VS_VIEW_NOAUDIO))
 		vv->rFrames.h += vsWaveSz;
 }
@@ -492,7 +492,7 @@ SizeAllocate(void *p, const AG_SizeAlloc *a)
 	AG_SizeAlloc aBar;
 	int wSb;
 	
-	if (a->h < (wSb = AG_ScrollbarPrefWidth()) + 5)
+	if (a->h < (wSb = agTextFontHeight) + 5)
 		return (-1);
 
 	vv->rFrames.x = 0;
