@@ -7,8 +7,6 @@
 
 #include "vs_clip.h"
 
-struct vs_view;
-
 enum vs_player_button {
 	VS_PLAYER_REW,		/* Rewind to start of clip */
 	VS_PLAYER_PLAY,		/* Start playback */
@@ -29,30 +27,40 @@ typedef struct vs_player {
 #define VS_PLAYER_EXPAND	(VS_PLAYER_HFILL|VS_PLAYER_VFILL)
 #define VS_PLAYER_REFRESH	0x04	/* Force refresh */
 #define VS_PLAYER_LOD		0x08	/* Hi-quality display */
-#define VS_PLAYER_STOPPING	0x10	/* Stopping in progress */
+#define VS_PLAYER_PLAYING	0x10	/* Playback in progress */
 
-	int wPre, hPre;		/* Requested geometry */
-	struct vs_view *vv;	/* Associated view and clip */
-	AG_Rect rVid;		/* Video area */
-	int xOffsLast;		/* Last drawn frame */
-	int suScaled;		/* Scaled surface handle */
-	int lodTimeout;		/* Timeout before LOD increase */
+	int wPre, hPre;			/* Requested geometry */
+	VS_Clip *clip;		/* Associated video clip */
+	AG_Rect rVid;			/* Video area */
+	int xLast;			/* Last drawn frame */
+	int suScaled;			/* Scaled surface handle */
+	int lodTimeout;			/* Timeout before LOD increase */
 	AG_Button *btn[VS_PLAYER_LASTBTN]; /* Control buttons */
-	int sine[VS_PLAYER_SINE_SIZE]; 	/* For testing audio */
-	int sinePhase;			/* For testing audio */
+	TAILQ_ENTRY(vs_player) players;	/* In project */
 } VS_Player;
 
 __BEGIN_DECLS
 extern AG_WidgetClass vsPlayerClass;
-extern int vsPlayerEnableComp;
-extern int vsPlayerCompensation;
 
-VS_Player *VS_PlayerNew(void *, Uint, struct vs_view *);
+VS_Player *VS_PlayerNew(void *, Uint, VS_Clip *);
 void       VS_PlayerSizeHint(VS_Player *, Uint, Uint);
 void       VS_Play(VS_Player *);
 void       VS_Stop(VS_Player *);
 int        VS_PlayAudio(VS_Player *);
 int        VS_StopAudio(VS_Player *);
+
+static __inline__ void
+VS_PlayerUpdate(VS_Player *vp)
+{
+	if ((vp->flags & VS_PLAYER_PLAYING) == 0) {
+		return;
+	}
+	if (vp->clip->x + 1 >= vp->clip->n) {
+		VS_Stop(vp);
+	} else {
+		vp->clip->x++;
+	}
+}
 __END_DECLS
 
 #endif /* _VISLAK_PLAYER_H_ */

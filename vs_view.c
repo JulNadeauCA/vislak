@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010 Julien Nadeau (vedge@hypertriton.com).
+ * Copyright (c) 2010-2013 Julien Nadeau (vedge@hypertriton.com).
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,24 +38,23 @@ static void
 MouseMotion(AG_Event *event)
 {
 	VS_View *vv = AG_SELF();
+	VS_Clip *v = vv->clip;
+	VS_Project *vsp = v->proj;
 	int dx = AG_INT(3);
 	int xLast;
 
-	if (vv->clip == NULL) {
+	if (v == NULL) {
 		return;
 	}
 	if (vv->flags & VS_VIEW_PANNING) {
 		if (dx < 0) {
-			vv->xOffs++;
+			v->x++;
 		} else if (dx > 0) {
-			vv->xOffs--;
+			v->x--;
 		}
-		if (vv->xOffs < 0)
-			vv->xOffs = 0;
-
-		xLast = vv->clip->n - WIDTH(vv)/vsThumbSz;
-		if (vv->xOffs > xLast)
-			vv->xOffs = xLast;
+		xLast = v->n - WIDTH(vv)/vsp->thumbSz;
+		if (v->x > xLast)
+			v->x = xLast;
 	}
 }
 
@@ -80,48 +79,51 @@ static void
 DeleteFrames(VS_View *vv)
 {
 	Uint i, j, nDeleted = 0;
+	VS_Clip *v = vv->clip;
 
 scan:
-	for (i = 0; i < vv->clip->n; i++) {
-		VS_Frame *vf = &vv->clip->frames[i];
+	for (i = 0; i < v->n; i++) {
+		VS_Frame *vf = &v->frames[i];
 
 		/* Look for a continuous selection. */
-		for (j = i; j < vv->clip->n; j++) {
-			if (!(vv->clip->frames[j].flags & VS_FRAME_SELECTED))
+		for (j = i; j < v->n; j++) {
+			if (!(v->frames[j].flags & VS_FRAME_SELECTED))
 				break;
 		}
 		if (j == i) {
 			continue;
 		}
-		VS_ClipDelFrames(vv->clip, i, j);
+		VS_ClipDelFrames(v, i, j);
 		nDeleted += (j-i);
 		goto scan;
 	}
-	AG_LabelText(vsStatus, _("Deleted %u frames"), nDeleted);
+	VS_Status(vv, _("Deleted %u frames"), nDeleted);
 }
 
 /* Select all frames */
 static void
 SelectAllFrames(VS_View *vv)
 {
+	VS_Clip *v = vv->clip;
 	Uint i;
 
-	for (i = 0; i < vv->clip->n; i++) {
-		vv->clip->frames[i].flags |= VS_FRAME_SELECTED;
+	for (i = 0; i < v->n; i++) {
+		v->frames[i].flags |= VS_FRAME_SELECTED;
 	}
-	AG_LabelText(vsStatus, _("Selected all frames"));
+	VS_Status(vv, _("Selected all frames"));
 }
 
 /* Unselect all frames */
 static void
 UnselectAllFrames(VS_View *vv)
 {
+	VS_Clip *v = vv->clip;
 	Uint i;
 
-	for (i = 0; i < vv->clip->n; i++) {
-		vv->clip->frames[i].flags &= ~(VS_FRAME_SELECTED);
+	for (i = 0; i < v->n; i++) {
+		v->frames[i].flags &= ~(VS_FRAME_SELECTED);
 	}
-	AG_LabelText(vsStatus, _("Unselected all frames"));
+	VS_Status(vv, _("Unselected all frames"));
 }
 
 /* Clear KBD keymap */
@@ -133,7 +135,7 @@ ClearKeymapKBD(AG_Event *event)
 	Uint nCleared;
 
 	nCleared = VS_ClipClearKeys(vv->clip);
-	AG_LabelText(vsStatus, _("Cleared %u key mappings"), nCleared);
+	VS_Status(vv, _("Cleared %u key mappings"), nCleared);
 }
 
 /* Clear MIDI keymap */
@@ -148,7 +150,7 @@ ClearKeymapMIDI(AG_Event *event)
 		return;
 	}
 	nCleared = VS_MidiClearKeys(mid);
-	AG_LabelText(vsStatus, _("Cleared %u MIDI key mappings"), nCleared);
+	VS_Status(vv, _("Cleared %u MIDI key mappings"), nCleared);
 }
 
 /* Create a default MIDI keymap scaled to the video length. */
@@ -156,19 +158,20 @@ static void
 PartitionKeymapMIDI(AG_Event *event)
 {
 	VS_View *vv = AG_PTR(1);
+	VS_Clip *v = vv->clip;
 	VS_Midi *mid;
 	Uint i, j, key;
 	Uint div, nMapped = 0;
 
-	if ((mid = vv->clip->midi) == NULL) {
+	if ((mid = v->midi) == NULL) {
 		return;
 	}
-	div = (Uint)vv->clip->n/60;
+	div = (Uint)v->n/60;
 	key = 36;
 	for (i = 0, j = 0;
-	     i < vv->clip->n;
+	     i < v->n;
 	     i++) {
-		vv->clip->frames[i].midiKey = key;
+		v->frames[i].midiKey = key;
 		if (++j > div) {
 			j = 0;
 			key++;
@@ -176,7 +179,7 @@ PartitionKeymapMIDI(AG_Event *event)
 		mid->keymap[key] = i;
 		nMapped++;
 	}
-	AG_LabelText(vsStatus, _("Mapped %u MIDI keys"), nMapped);
+	VS_Status(vv, _("Mapped %u MIDI keys"), nMapped);
 }
 
 /* Initialize a 1:1 MIDI keymap */
@@ -184,30 +187,34 @@ static void
 InitKeymap11MIDI(AG_Event *event)
 {
 	VS_View *vv = AG_PTR(1);
+	VS_Clip *v = vv->clip;
 	VS_Midi *mid;
 	Uint i, key;
 
-	if ((mid = vv->clip->midi) == NULL) {
+	if ((mid = v->midi) == NULL) {
 		return;
 	}
 	for (i = 0, key = 36;
-	     i < vv->clip->n && key <= 96;
+	     i < v->n && key <= 96;
 	     i++, key++) {
-		vv->clip->frames[i].midiKey = key;
+		v->frames[i].midiKey = key;
 		mid->keymap[key] = i;
 	}
-	AG_LabelText(vsStatus, _("Mapped %u MIDI keys"), i);
+	VS_Status(vv, _("Mapped %u MIDI keys"), i);
 }
 
 static void
 PopupMenu(VS_View *vv, int x, int y)
 {
-	AG_PopupMenu *pm = AG_PopupNew(vv);
-	AG_MenuItem *m = pm->item;
-	AG_MenuItem *mMIDI, *mKeymaps, *mSub;
-	
-	AG_MenuBoolMp(m, _("Key Learn Mode"), vsIconControls.s, /* XXX icon */
-	    &vsLearning, 0, &vsProcLock);
+	VS_Project *vsp = vv->clip->proj;
+	AG_PopupMenu *pm;
+	AG_MenuItem *m, *mMIDI, *mKeymaps, *mSub;
+
+	pm = AG_PopupNew(vv);
+	m = pm->root;
+
+	AG_MenuUintFlagsMp(m, _("Key Learn Mode"), vsIconControls.s,
+	    &vsp->flags, VS_PROJECT_LEARNING, 0, &OBJECT(vsp)->lock);
 
 	AG_MenuSeparator(m);
 
@@ -242,6 +249,8 @@ static void
 MouseButtonDown(AG_Event *event)
 {
 	VS_View *vv = AG_SELF();
+	VS_Clip *v = vv->clip;
+	VS_Project *vsp = v->proj;
 	int button = AG_INT(1);
 	int x = AG_INT(2);
 	int y = AG_INT(3);
@@ -249,20 +258,20 @@ MouseButtonDown(AG_Event *event)
 	AG_Event ev;
 	int f;
 
-	if (vv->clip == NULL) {
+	if (v == NULL) {
 		return;
 	}
 	switch (button) {
 	case AG_MOUSE_WHEELUP:
-		if (vv->xOffs > 0) { vv->xOffs--; }
+		if (v->x > 0) { v->x--; }
 		break;
 	case AG_MOUSE_WHEELDOWN:
-		if (vv->xOffs < (vv->clip->n-1)) { vv->xOffs++; }
+		if (v->x < (v->n - 1)) { v->x++; }
 		break;
 	case AG_MOUSE_LEFT:
-		f = vv->xOffs + x/vsThumbSz;
-		if (f >= 0 && f < vv->clip->n) {
-			VS_Frame *vf = &vv->clip->frames[f];
+		f = v->x + x/vsp->thumbSz;
+		if (f >= 0 && f < v->n) {
+			VS_Frame *vf = &v->frames[f];
 			int i, fSel;
 
 			if (ms & AG_KEYMOD_CTRL) {
@@ -272,22 +281,22 @@ MouseButtonDown(AG_Event *event)
 					vf->flags |= VS_FRAME_SELECTED;
 				} 
 			} else if (ms & AG_KEYMOD_SHIFT) {
-				for (fSel = 0; fSel < vv->clip->n; fSel++) {
-					if (vv->clip->frames[fSel].flags &
+				for (fSel = 0; fSel < v->n; fSel++) {
+					if (v->frames[fSel].flags &
 					    VS_FRAME_SELECTED)
 						break;
 				}
-				if (fSel == vv->clip->n) {
+				if (fSel == v->n) {
 					fSel = 0;
 				}
 				if (f < fSel) {
 					for (i = f; i < fSel; i++) {
-						vv->clip->frames[i].flags
+						v->frames[i].flags
 						    |= VS_FRAME_SELECTED;
 					}
 				} else {
 					for (i = f; i > fSel; i--) {
-						vv->clip->frames[i].flags
+						v->frames[i].flags
 						    |= VS_FRAME_SELECTED;
 					}
 				}
@@ -313,16 +322,25 @@ static Uint32
 KbdMoveTimeout(AG_Timer *to, AG_Event *event)
 {
 	VS_View *vv = AG_SELF();
-	int xOffs;
+	VS_Clip *v = vv->clip;
+	int x;
 
-	if (vv->clip->n == 0) { return (0); }
+	if (v->n == 0) { return (0); }
 
-	xOffs = vv->kbdCenter + (int)(sin(vv->kbdVal)*20.0);
-	if (xOffs < 0) { xOffs = 0; }
-	if (xOffs >= vv->clip->n) { xOffs = vv->clip->n - 1; }
-	vv->xOffs = xOffs;
-	vv->kbdVal += 0.05;
+	if (vv->kbdDir == -1) {
+		if (--(vv->kbdOffset) < -10)
+			vv->kbdDir = +1;
+	} else {
+		if (++(vv->kbdOffset) > 10)
+			vv->kbdDir = -1;
+	}
 
+	x = vv->kbdCenter + vv->kbdOffset;
+	if (x < 0) { x = 0; }
+	if (x >= v->n) { x = v->n - 1; }
+	v->x = x;
+
+	AG_Redraw(vv);
 	return (to->ival);
 }
 
@@ -330,19 +348,20 @@ static void
 KeyDown(AG_Event *event)
 {
 	VS_View *vv = AG_SELF();
-	VS_Clip *vc = vv->clip;
+	VS_Clip *v = vv->clip;
+	VS_Project *vsp = v->proj;
 	int sym = AG_INT(1);
 	int mod = AG_INT(2);
 
-	if (vc == NULL) {
+	if (v == NULL) {
 		return;
 	}
 	if ((isalpha(sym) || isdigit(sym)) &&
-	    vsLearning &&
-	    vv->xSel >= 0 && vv->xSel < vc->n) {
-		vc->kbdKeymap[sym] = vv->xSel;
-		vc->frames[vv->xSel].kbdKey = sym;
-		AG_LabelText(vsStatus, _("Mapped %d -> f%d"), sym, vv->xSel);
+	    (vsp->flags & VS_PROJECT_LEARNING) &&
+	    vv->xSel >= 0 && vv->xSel < v->n) {
+		v->kbdKeymap[sym] = vv->xSel;
+		v->frames[vv->xSel].kbdKey = sym;
+		VS_Status(vv, _("Mapped %d -> f%d"), sym, vv->xSel);
 		return;
 	}
 	switch (sym) {
@@ -361,19 +380,17 @@ KeyDown(AG_Event *event)
 	case AG_KEY_DELETE:
 		DeleteFrames(vv);
 		return;
-	default:
-		break;
 	}
 	if (isalpha(sym) || isdigit(sym)) {
-		if (vc->kbdKeymap[sym] != -1) {
+		if (v->kbdKeymap[sym] != -1) {
 			if (vv->kbdCenter != -1) {
 				AG_DelTimer(vv, &vv->toKbdMove);
 			}
-			vv->xSel = vc->kbdKeymap[sym];
-			vv->kbdCenter = vc->kbdKeymap[sym];
-			vv->kbdVal = 0.0;
-			AG_AddTimer(vv, &vv->toKbdMove, 5,
-			    KbdMoveTimeout, NULL);
+			vv->xSel = v->kbdKeymap[sym];
+			vv->kbdCenter = v->kbdKeymap[sym];
+			vv->kbdOffset = 0;
+			vv->kbdDir = +1;
+			AG_AddTimer(vv, &vv->toKbdMove, 5, KbdMoveTimeout, NULL);
 		}
 	}
 }
@@ -382,14 +399,14 @@ static void
 KeyUp(AG_Event *event)
 {
 	VS_View *vv = AG_SELF();
-	VS_Clip *vc = vv->clip;
+	VS_Clip *v = vv->clip;
 	int sym = AG_INT(1);
 	int mod = AG_INT(2);
 
-	if (vc == NULL) {
+	if (v == NULL) {
 		return;
 	}
-	if (vv->kbdCenter != -1 && vv->kbdCenter == vc->kbdKeymap[sym]) {
+	if (vv->kbdCenter != -1 && vv->kbdCenter == v->kbdKeymap[sym]) {
 		AG_DelTimer(vv, &vv->toKbdMove);
 		vv->kbdCenter = -1;
 	}
@@ -403,17 +420,18 @@ VS_ViewNew(void *parent, Uint flags, VS_Clip *clip)
 	vv = Malloc(sizeof(VS_View));
 	AG_ObjectInit(vv, &vsViewClass);
 	vv->flags |= flags;
-	vv->clip = clip;
 	vv->incr = 1;
+	vv->clip = clip;
+	vv->hPre = clip->proj->thumbSz;
 
 	if (flags & VS_VIEW_HFILL) { AG_ExpandHoriz(vv); }
 	if (flags & VS_VIEW_VFILL) { AG_ExpandVert(vv); }
 	AGWIDGET(vv)->flags |= AG_WIDGET_FOCUSABLE;
 
-	vv->sb = AG_ScrollbarNew(vv, AG_SCROLLBAR_HORIZ, 0);
-	AG_BindUint(vv->sb, "value", &vv->xOffs);
+	vv->sb = AG_ScrollbarNew(vv, AG_SCROLLBAR_HORIZ, AG_SCROLLBAR_NOAUTOHIDE);
+	AG_BindUint(vv->sb, "value", &vv->clip->x);
 	AG_BindUint(vv->sb, "max", &vv->clip->n);
-	AG_BindUint(vv->sb, "visible", &vv->xVis);
+//	AG_BindUint(vv->sb, "visible", &vv->xVis);
 	AG_SetUint(vv->sb, "inc", 10);
 	AG_WidgetSetFocusable(vv->sb, 0);
 
@@ -450,17 +468,15 @@ Init(void *obj)
 	VS_View *vv = obj;
 
 	vv->flags = 0;
+	vv->clip = NULL;
 	vv->wPre = 700;
-	vv->hPre = vsThumbSz;
-	vv->xOffs = 0;
+	vv->hPre = 128;
 	vv->xSel = -1;
 	vv->xVis = 0;
 	vv->rFrames = AG_RECT(0,0,0,0);
 	vv->rAudio = AG_RECT(0,0,0,0);
 	vv->sb = NULL;
 	vv->incr = 10;
-	vv->clip = NULL;
-	vv->xVel = 0.0;
 	vv->kbdCenter = -1;
 }
 
@@ -477,18 +493,20 @@ static void
 SizeRequest(void *p, AG_SizeReq *r)
 {
 	VS_View *vv = p;
+	VS_Project *vsp = vv->clip->proj;
 	AG_SizeReq rBar;
 	
 	r->w = vv->wPre;
 	r->h = vv->hPre + agTextFontHeight;
 	if (!(vv->flags & VS_VIEW_NOAUDIO))
-		vv->rFrames.h += vsWaveSz;
+		vv->rFrames.h += vsp->waveSz;
 }
 
 static int
 SizeAllocate(void *p, const AG_SizeAlloc *a)
 {
 	VS_View *vv = p;
+	VS_Project *vsp = vv->clip->proj;
 	AG_SizeAlloc aBar;
 	int wSb;
 	
@@ -499,9 +517,9 @@ SizeAllocate(void *p, const AG_SizeAlloc *a)
 	vv->rFrames.y = 0;
 	vv->rFrames.w = a->w;
 	if (!(vv->flags & VS_VIEW_NOAUDIO)) {
-		vv->rFrames.h = MIN(vsThumbSz, a->h - wSb - vsWaveSz);
+		vv->rFrames.h = MIN(vsp->thumbSz, a->h - wSb - vsp->waveSz);
 	} else {
-		vv->rFrames.h = MIN(vsThumbSz, a->h - wSb);
+		vv->rFrames.h = MIN(vsp->thumbSz, a->h - wSb);
 	}
 	if (vv->rFrames.h < 0) { vv->rFrames.h = 0; }
 
@@ -510,7 +528,7 @@ SizeAllocate(void *p, const AG_SizeAlloc *a)
 	vv->rAudio.w = a->w;
 
 	if (!(vv->flags & VS_VIEW_NOAUDIO)) {
-		vv->rAudio.h = MIN(vsWaveSz, a->h - wSb - vv->rFrames.h);
+		vv->rAudio.h = MIN(vsp->waveSz, a->h - wSb - vv->rFrames.h);
 		if (vv->rAudio.h < 0) { vv->rAudio.h = 0; }
 	} else {
 		vv->rAudio.h = 0;
@@ -524,7 +542,7 @@ SizeAllocate(void *p, const AG_SizeAlloc *a)
 		AG_WidgetSizeAlloc(vv->sb, &aBar);
 	}
 
-	vv->xVis = a->w/vsThumbSz;
+	vv->xVis = a->w/vsp->thumbSz;
 	return (0);
 }
 
@@ -532,51 +550,61 @@ static void
 Draw(void *p)
 {
 	VS_View *vv = p;
-	VS_Clip *vc = vv->clip;
+	VS_Clip *v = vv->clip;
+	VS_Project *vsp = v->proj;
 	AG_Rect r;
+	AG_Color c;
 	int i;
 
 	if (vv->rFrames.h <= 0 && vv->rAudio.h <= 0)
 		return;
 
-	AG_MutexLock(&vc->lock);
+	AG_MutexLock(&v->lock);
 	
 	/*
 	 * Render video frames.
 	 */
-	AG_DrawBox(vv, vv->rFrames, -1, AG_ColorRGB(100,100,100));
+	AG_ColorRGB(&c, 100,100,100);
+	AG_DrawBox(vv, &vv->rFrames, -1, &c);
 	r = vv->rFrames;
-	r.w = vsThumbSz;
+	r.w = vsp->thumbSz;
 
 	AG_PushTextState();
 	AG_TextBGColorRGB(0,0,0);
 	AG_TextColorRGB(255,255,255);
 
-	AG_PushClipRect(vv, vv->rFrames);
-	for (i = vv->xOffs;
-	     i >= 0 && i < vv->clip->n && r.x < WIDTH(vv);
+	AG_PushClipRect(vv, &vv->rFrames);
+	for (i = v->x;
+	     i < v->n && r.x < WIDTH(vv);
 	     i++) {
-		VS_Frame *vf = &vc->frames[i];
+		VS_Frame *vf = &v->frames[i];
+
+		if (i < 0) {
+			r.x += vf->thumb->w;
+			continue;
+		}
 
 		AG_WidgetBlit(vv, vf->thumb, r.x, 0);
 		if (vf->flags & VS_FRAME_SELECTED) {
-			AG_DrawRectOutline(vv, r,
-			    AG_ColorRGB(250,250,250));
-			AG_DrawRectBlended(vv, r,
-			    AG_ColorRGBA(0,0,255,64),
-			    AG_ALPHA_SRC);
+			AG_ColorRGB(&c, 250,250,250);
+			AG_DrawRectOutline(vv, &r, &c);
+			AG_ColorRGBA(&c, 0,0,255,64);
+			AG_DrawRectBlended(vv, &r, &c, AG_ALPHA_SRC,
+			    AG_ALPHA_ONE_MINUS_SRC);
 		}
 		if (vf->kbdKey != -1) {
-			AG_Surface *s;
-			s = AG_TextRenderf("%c", (char)vf->kbdKey);
-			AG_WidgetBlit(vv, s, r.x, 0);
-			AG_SurfaceFree(s);
+			AG_Surface *S;
+
+			S = AG_TextRenderf("%c", (char)vf->kbdKey);
+			AG_WidgetBlit(vv, S, r.x, 0);
+			AG_SurfaceFree(S);
 		}
 		if (vf->midiKey != -1) {
-			AG_Surface *s;
-			s = AG_TextRenderf("%x", vf->midiKey);
-			AG_WidgetBlit(vv, s, r.x, 0);
-			AG_SurfaceFree(s);
+			AG_Surface *S;
+
+			S = AG_TextRenderf("%x", vf->midiKey);
+			AG_WidgetBlit(vv, S, r.x, 0);
+			AG_SurfaceFree(S);
 		}
 		r.x += vf->thumb->w;
 	}
@@ -585,49 +613,50 @@ Draw(void *p)
 	/*
 	 * Render the audio waveform.
 	 */
-	if (vv->rAudio.h > 0 && vc->sndViz != NULL) {
-		double signal[2];
+	if (vv->rAudio.h > 0 && v->sndViz != NULL) {
 		Uint pos;
 		int val;
 
-		AG_DrawBox(vv, vv->rAudio, 1, AG_ColorRGB(0,0,0));
+		AG_ColorBlack(&c);
+		AG_DrawBox(vv, &vv->rAudio, 1, &c);
 		r = vv->rAudio;
 
-		AG_PushClipRect(vv, vv->rAudio);
+		AG_PushClipRect(vv, &vv->rAudio);
 
 		/* Center line */
-		r.y += vsWaveSz/2;
-		AG_DrawLineH(vv, 0, WIDTH(vv), r.y, AG_ColorRGB(0,50,250));
+		r.y += vsp->waveSz/2;
+		AG_ColorRGB(&c, 0,50,250);
+		AG_DrawLineH(vv, 0, WIDTH(vv), r.y, &c);
 
 		/* Samples */
-		AG_MutexLock(&vc->sndLock);
-		for (r.x = 0, pos = vv->xOffs*vsThumbSz;
-		     r.x < WIDTH(vv) && pos >= 0 && pos < vc->sndVizFrames;
+		AG_MutexLock(&v->sndLock);
+		for (r.x = 0, pos = v->x*vsp->thumbSz;
+		     r.x < WIDTH(vv) && pos < v->sndVizFrames;
 		     r.x++) {
-			val = (int)(vc->sndViz[pos]*vsWaveSz);
+			val = (int)(v->sndViz[pos]*vsp->waveSz);
 			if (val != 0) {
+				AG_ColorRGB(&c, 0,250,0);
 				AG_DrawLineV(vv, r.x,
 				    r.y - val,
-				    r.y + val,
-				    AG_ColorRGB(0,250,0));
+				    r.y + val, &c);
 			}
 			pos++;
 		}
-		AG_MutexUnlock(&vc->sndLock);
+		AG_MutexUnlock(&v->sndLock);
 		
 		AG_PopClipRect(vv);
 	}
 
 	AG_PopTextState();
 
-	AG_MutexUnlock(&vc->lock);
+	AG_MutexUnlock(&v->lock);
 
 	/* Render the scrollbar. */
 	if (vv->sb != NULL) {
-		if (vv->clip->n > 0 && vv->xVis > 0 &&
-		    vv->xVis < vv->clip->n) {
+		if (v->n > 0 && vv->xVis > 0 &&
+		    vv->xVis < v->n) {
 			AG_ScrollbarSetControlLength(vv->sb,
-			    (vv->xVis * vv->sb->length / vv->clip->n));
+			    (vv->xVis * vv->sb->length / v->n));
 		} else {
 			AG_ScrollbarSetControlLength(vv->sb, -1);
 		}

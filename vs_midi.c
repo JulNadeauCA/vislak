@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010 Julien Nadeau (vedge@hypertriton.com).
+ * Copyright (c) 2010-2013 Julien Nadeau (vedge@hypertriton.com).
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,6 @@
  */
 
 #include <vislak.h>
-#include "vs_view.h"
 #include "icons.h"
 
 #include <config/have_alsa.h>
@@ -107,7 +106,7 @@ Uint
 VS_MidiClearKeys(VS_Midi *mid)
 {
 	Uint i, nCleared = 0, f;
-	VS_Clip *vc = mid->vv->clip;
+	VS_Clip *v = mid->vv->clip;
 
 	for (i = 0; i < VS_MIDI_MAXKEYS; i++) {
 		if ((f = mid->keymap[i]) != -1) {
@@ -115,8 +114,8 @@ VS_MidiClearKeys(VS_Midi *mid)
 			nCleared++;
 		}
 	}
-	for (i = 0; i < vc->n; i++) {
-		vc->frames[i].midiKey = -1;
+	for (i = 0; i < v->n; i++) {
+		v->frames[i].midiKey = -1;
 	}
 	return (nCleared);
 }
@@ -124,7 +123,8 @@ VS_MidiClearKeys(VS_Midi *mid)
 static void
 RepartitionMIDI(VS_View *vv, int start, int end)
 {
-	VS_Midi *mid = vv->clip->midi;
+	VS_Clip *v = vv->clip;
+	VS_Midi *mid = v->midi;
 	Uint i, j, key;
 	Uint div, nMapped = 0;
 
@@ -133,7 +133,7 @@ RepartitionMIDI(VS_View *vv, int start, int end)
 	for (i = start, j = 0;
 	     i < end;
 	     i++) {
-		vv->clip->frames[i].midiKey = key;
+		v->frames[i].midiKey = key;
 		if (++j > div) {
 			j = 0;
 			key++;
@@ -141,7 +141,7 @@ RepartitionMIDI(VS_View *vv, int start, int end)
 		mid->keymap[key] = i;
 		nMapped++;
 	}
-	AG_LabelText(vsStatus, _("Mapped %u MIDI keys (%d-%d)"),
+	VS_Status(vv, _("Mapped %u MIDI keys (%d-%d)"),
 	    nMapped, start, end);
 }
 
@@ -149,67 +149,83 @@ RepartitionMIDI(VS_View *vv, int start, int end)
 /*
  * MIDI input loop.
  */
+static __inline__ void
+ReadMidi(VS_View *vv, VS_Midi *mid, void *p, size_t len)
+{
+	AG_ObjectUnlock(vv->clip->proj);
+	AG_ObjectUnlock(vv);
+	snd_rawmidi_read(mid->pvt->in, p, len);
+	AG_ObjectLock(vv);
+	AG_ObjectLock(vv->clip->proj);
+}
 static void *
 VS_MidiInputThread(void *arg)
 {
 	VS_Midi *mid = arg;
 	VS_View *vv = mid->vv;
+	VS_Clip *v;
+	VS_Project *vsp;
 	Uchar ch, data[2];
 	int key, vel;
 	double bend = 0.0;
 	int repStart = 0, repSize = 0;
 
+	AG_ObjectLock(vv);
+	v = vv->clip;
+	vsp = v->proj;
+	AG_ObjectLock(vsp);
+
 	for (;;) {
-		snd_rawmidi_read(mid->pvt->in, &ch, 1);
+		ReadMidi(vv, mid, &ch, 1);
 		switch (ch) {
 		case 0x94:					/* Note */
-			snd_rawmidi_read(mid->pvt->in, data, 2);
+			ReadMidi(vv, mid, data, 2);
 			key = (int)data[0];
 			vel = (int)data[1];
 			if (vel == 0) {
 				break;
 			}
-			if (vsLearning &&
-			    vv->xSel >= 0 && vv->xSel < vv->clip->n) {
-				VS_MidiAddKey(mid, key,
-				    &vv->clip->frames[vv->xSel]);
+			if (vsp->flags & VS_PROJECT_LEARNING &&
+			    vv->xSel >= 0 && vv->xSel < v->n) {
+				VS_MidiAddKey(mid, key, &v->frames[vv->xSel]);
 			} else {
 				if (mid->keymap[key] != -1) {
-					vv->xOffs = mid->keymap[key];
+					v->x = mid->keymap[key];
 					vv->xSel = mid->keymap[key];
 				}
 			}
 			break;
 		case 0xb4:					/* Controller */
-			snd_rawmidi_read(mid->pvt->in, data, 2);
+			ReadMidi(vv, mid, data, 2);
 			switch (data[0]) {
 			case 0x1:
-				vsBendSpeed = 1.0 +
-				    ((double)(127 - data[1])/127.0)*vsBendSpeedMax;
-				vv->xVel = bend/vsBendSpeed;
+				vsp->bendSpeed = 1.0 +
+				    ((double)(127 - data[1])/127.0)*vsp->bendSpeedMax;
+				v->xVel = bend/vsp->bendSpeed;
 				break;
 			case 0xa:
-				repStart = data[1]*(vv->clip->n - 1)/127;
+				repStart = data[1]*(v->n - 1)/127;
 				RepartitionMIDI(vv, repStart, repSize);
 				break;
 			case 0x1c:
-				repSize = data[1]*(vv->clip->n - 1)/127;
+				repSize = data[1]*(v->n - 1)/127;
 				RepartitionMIDI(vv, repStart, repSize);
 				break;
 			default:
-				vv->xOffs = data[1]*(vv->clip->n-1)/127;
+				v->x = data[1]*(v->n - 1)/127;
 				break;
 			}
 			break;
 		case 0xe4:					/* Pitch bend */
-			snd_rawmidi_read(mid->pvt->in, data, 2);
+			ReadMidi(vv, mid, data, 2);
 			bend = (double)(data[1] - 64);
-			vv->xVel = bend/vsBendSpeed;
-			break;
-		default:
+			v->xVel = bend/vsp->bendSpeed;
 			break;
 		}
 	}
+	
+	AG_ObjectUnlock(vsp);
+	AG_ObjectUnlock(vv);
 }
 
 /*
@@ -267,7 +283,7 @@ SetInputALSA(AG_Event *event)
 		return;
 	}
 	mid->flags |= VS_MIDI_INPUT;
-	AG_LabelText(vsStatus, _("Opened input MIDI device: %s"), devname);
+/*	AG_LabelText(vsStatus, _("Opened input MIDI device: %s"), devname); */
 	AG_ThreadCreate(&thInput, VS_MidiInputThread, mid);
 }
 static void
@@ -291,7 +307,7 @@ SetOutputALSA(AG_Event *event)
 		return;
 	}
 	mid->flags |= VS_MIDI_OUTPUT;
-	AG_LabelText(vsStatus, _("Opened output MIDI device: %s"), devname);
+/*	AG_LabelText(vsStatus, _("Opened output MIDI device: %s"), devname); */
 	AG_ThreadCreate(&thOutput, VS_MidiOutputThread, mid);
 }
 

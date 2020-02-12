@@ -6,8 +6,6 @@
 #include <agar/gui/widget.h>
 #include <agar/gui/scrollbar.h>
 
-#include "vs_clip.h"
-
 typedef struct vs_view {
 	struct ag_widget wid;
 
@@ -20,7 +18,6 @@ typedef struct vs_view {
 #define VS_VIEW_EXPAND	(VS_VIEW_HFILL|VS_VIEW_VFILL)
 
 	int wPre, hPre;			/* Requested geometry */
-	Uint xOffs;			/* Display offset */
 	Uint xVis;			/* # of on-screen frames */
 	AG_Rect rFrames;		/* Video frames area */
 	AG_Rect rAudio;			/* Audio waveform area */
@@ -29,10 +26,7 @@ typedef struct vs_view {
 	VS_Clip *clip;			/* Video clip to display */
 	AG_PopupMenu *menu;		/* Popup menu */
 	int xSel;			/* Last selected frame */
-	double xVel;			/* Frame advance velocity */
-	double xVelCur;
-	int kbdCenter;
-	float kbdVal;
+	int kbdCenter, kbdOffset, kbdDir;
 	AG_Timeout toKbdMove;
 } VS_View;
 
@@ -42,6 +36,7 @@ extern AG_WidgetClass vsViewClass;
 VS_View *VS_ViewNew(void *, Uint, VS_Clip *);
 void     VS_ViewSizeHint(VS_View *, Uint, Uint);
 void     VS_ViewSetIncrement(VS_View *, int);
+void     VS_Status(void *, const char *, ...);
 __END_DECLS
 
 #endif /* _VISLAK_VIEW_H_ */

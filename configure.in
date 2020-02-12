@@ -5,6 +5,7 @@ VERSION("1.0-beta")
 RELEASE("5l45H! 4TT4CK! 3NT3R! K3Y!")
 
 REGISTER_SECTION("Options specific to Vislak:")
+REGISTER("--enable-debug",	"General debugging [no]")
 REGISTER("--enable-warnings",	"Suggested compiler warnings [default: no]")
 REGISTER("--with-agar[=PREFIX]", "Specify Agar location [default: auto-detect]")
 REGISTER("--with-jpeg[=PREFIX]", "Specify libjpeg location [default: auto-detect]")
@@ -48,6 +49,9 @@ if [ "${enable_warnings}" = "yes" ]; then
 	C_OPTION(-Werror)
 	C_OPTION(-Wno-unused)
 	C_OPTION(-Wmissing-prototypes)
+fi
+if [ "${enable_debug}" = "yes" ]; then
+	MDEFINE(CFLAGS, "${CFLAGS} -g -DVS_DEBUG")
 fi
 
 # Enable NLS if requested explicitely.

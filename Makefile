@@ -11,7 +11,10 @@ SRCS=	vislak.c \
 	vs_clip.c \
 	vs_view.c \
 	vs_midi.c \
-	vs_player.c
+	vs_player.c \
+	vs_project.c \
+	vs_gui.c
+
 #SHARE=	vislak.png
 
 CFLAGS+=${AGAR_CFLAGS} ${AGAR_MATH_CFLAGS} ${GETTEXT_CFLAGS} ${JPEG_CFLAGS} \

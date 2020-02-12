@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010 Hypertriton, Inc. <http://hypertriton.com/>
+ * Copyright (c) 2010-2013 Hypertriton, Inc. <http://hypertriton.com/>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,27 +28,30 @@
  */
 
 #include <vislak.h>
-#include "vs_player.h"
-#include "vs_view.h"
 
 #include <stdio.h>
 #include <jpeglib.h>
 #include <setjmp.h>
 
+int vsPlayerLOD = 0;			/* Auto LOD adjustment (for slow hw) */
 int vsPlayerButtonHeight = 20;
-int vsPlayerCompensation = 0;
-int vsPlayerEnableComp = 0;
 
 VS_Player *
-VS_PlayerNew(void *parent, Uint flags, struct vs_view *vv)
+VS_PlayerNew(void *parent, Uint flags, struct vs_clip *clip)
 {
 	VS_Player *vp;
+	VS_Project *vsp = clip->proj;
 
 	vp = Malloc(sizeof(VS_Player));
 	AG_ObjectInit(vp, &vsPlayerClass);
 
 	vp->flags |= flags;
-	vp->vv = vv;
+	vp->clip = clip;
+
+	AG_BindFlag(vp->btn[VS_PLAYER_PLAY], "state",
+	    &vsp->flags, VS_PROJECT_PLAYING);
+	AG_BindFlag(vp->btn[VS_PLAYER_REC], "state",
+	    &vsp->flags, VS_PROJECT_RECORDING);
 
 	if (flags & VS_PLAYER_HFILL) { AG_ExpandHoriz(vp); }
 	if (flags & VS_PLAYER_VFILL) { AG_ExpandVert(vp); }
@@ -69,53 +72,95 @@ Rewind(AG_Event *event)
 {
 	VS_Player *vp = AG_PTR(1);
 	
-	AG_ObjectLock(vp->vv);
-	vp->vv->xOffs = 0;
-	AG_ObjectUnlock(vp->vv);
+	AG_ObjectLock(vp);
+	AG_ObjectLock(vp->clip->proj);
+
+	vp->clip->x = 0;
+
+	AG_ObjectUnlock(vp->clip->proj);
+	AG_ObjectUnlock(vp);
+}
+
+static void
+Forward(AG_Event *event)
+{
+	VS_Player *vp = AG_PTR(1);
+	VS_Project *vsp;
+
+	AG_ObjectLock(vp);
+	vsp = vp->clip->proj;
+	AG_ObjectLock(vsp);
+
+	if (vp->clip->n > 0)
+		vp->clip->x = (vp->clip->n - 1);
+
+	AG_ObjectUnlock(vsp);
+	AG_ObjectUnlock(vp);
 }
 
 void
 VS_Stop(VS_Player *vp)
 {
-	if (vsPlayerOut != NULL &&
-	    vsPlayerOut->vv->clip->sndBuf &&
-	    VS_StopAudio(vsPlayerOut) == -1) {
-		AG_LabelText(vsStatus, _("Failed to stop audio: %s"),
-		    AG_GetError());
+	VS_Clip *v;
+	VS_Project *vsp;
+
+	AG_ObjectLock(vp);
+	v = vp->clip;
+	vsp = v->proj;
+	AG_ObjectLock(vsp);
+
+	if (v->sndBuf != NULL) {
+		if (VS_StopAudio(vp) == -1) {
+			VS_Status(vsp, _("Failed to stop audio: %s"),
+			    AG_GetError());
+		} else {
+			VS_Status(vsp, _("Audio/video playback stopped"));
+		}
 	} else {
-		AG_LabelText(vsStatus, _("Playback stopped"));
+		VS_Status(vsp, _("Video playback stopped"));
 	}
-	vsPlaying = NULL;
-	vsRecording = 0;
-	AG_SetInt(vp->btn[VS_PLAYER_PLAY], "state", 0);
-	AG_SetInt(vp->btn[VS_PLAYER_REC], "state", 0);
+	vsp->flags &= ~(VS_PROJECT_RECORDING);
+	vsp->flags &= ~(VS_PROJECT_PLAYING);
+	vp->flags &= ~(VS_PLAYER_PLAYING);
+	
+	AG_ObjectUnlock(vsp);
+	AG_ObjectUnlock(vp);
 }
 
 void
 VS_Play(VS_Player *vp)
 {
-	VS_Clip *vc = vp->vv->clip;
+	VS_Clip *v;
+	VS_Project *vsp;
 
-	if (vsPlaying != NULL) {
-		VS_Stop(vsPlaying);
-		vsPlaying = NULL;
-	}
-	if (vsPlayerOut->vv->clip->sndBuf &&
-	    VS_PlayAudio(vsPlayerOut) == -1) {
-		AG_LabelText(vsStatus, _("Failed to start audio: %s"),
-		    AG_GetError());
-	}
-	vsPlaying = vp;
-	vsRecording = 0;
-	AG_SetInt(vp->btn[VS_PLAYER_REC], "state", 0);
+	AG_ObjectLock(vp);
+	v = vp->clip;
+	vsp = v->proj;
+	AG_ObjectLock(vsp);
 
-	if (vc->sndBuf) {
-		AG_LabelText(vsStatus, _("Playing (%u frames, %d-Ch, %uHz)"),
-		    vc->n, vc->sndInfo.channels, vc->sndInfo.samplerate);
+	VS_Stop(vsp->gui.playerIn);
+	VS_Stop(vsp->gui.playerOut);
+
+	vsp->flags &= ~(VS_PROJECT_RECORDING);
+	vsp->flags &= ~(VS_PROJECT_PLAYING);
+
+	if (v->sndBuf != NULL) {
+		if (VS_PlayAudio(vp) == -1) {
+			VS_Status(vsp, _("Failed to start audio: %s"),
+			    AG_GetError());
+			goto out;
+		} else {
+			VS_Status(vsp, _("Playing (%u frames, %d-Ch, %uHz)"),
+			    v->n, v->sndInfo.channels, v->sndInfo.samplerate);
+		}
 	} else {
-		AG_LabelText(vsStatus, _("Playing (%u frames, no sound)"),
-		    vc->n);
+		VS_Status(vsp, _("Playing (%u frames, no sound)"), v->n);
 	}
+	vp->flags |= VS_PLAYER_PLAYING;
+	vsp->flags |= VS_PROJECT_PLAYING;
+out:
+	AG_ObjectUnlock(vsp);
+	AG_ObjectUnlock(vp);
 }
 
 static void
@@ -123,11 +168,7 @@ Play(AG_Event *event)
 {
 	VS_Player *vp = AG_PTR(1);
 
-	if (vsPlaying != vp) {
-		VS_Play(vp);
-	} else {
-		VS_Stop(vp);
-	}
+	VS_Play(vp);
 }
 
 static void
@@ -139,35 +180,30 @@ Stop(AG_Event *event)
 }
 
 static void
-Forward(AG_Event *event)
-{
-	VS_Player *vp = AG_PTR(1);
-	
-	AG_ObjectLock(vp->vv);
-	if (vp->vv->clip->n > 0) {
-		vp->vv->xOffs = (vp->vv->clip->n - 1);
-	}
-	AG_ObjectUnlock(vp->vv);
-}
-
-static void
 Record(AG_Event *event)
 {
 	VS_Player *vp = AG_PTR(1);
+	VS_Project *vsp;
 
-	if (!vsRecording) {
-		if (vsPlayerOut->vv->clip->sndBuf &&
-		    VS_PlayAudio(vsPlayerOut) == -1) {
-			AG_TextMsgFromError();
-			return;
-		}
-		vsPlaying = NULL;
-		vsRecording = 1;
-		AG_SetInt(vsPlayerIn->btn[VS_PLAYER_PLAY], "state", 0);
-		AG_SetInt(vsPlayerOut->btn[VS_PLAYER_PLAY], "state", 0);
-	} else {
-		VS_Stop(vp);
+	AG_ObjectLock(vp);
+	vsp = vp->clip->proj;
+	AG_ObjectLock(vsp);
+	
+	if (vsp->flags & VS_PROJECT_RECORDING)
+		goto out;
+
+	VS_Stop(vsp->gui.playerIn);
+	VS_Stop(vsp->gui.playerOut);
+
+	/* TODO allow other tracks to be played */
+	if (vsp->gui.playerOut->clip->sndBuf != NULL &&
+	    VS_PlayAudio(vsp->gui.playerOut) == -1) {
+		goto out;
 	}
+	vsp->flags |= VS_PROJECT_RECORDING;
+out:	
+	AG_ObjectUnlock(vsp);
+	AG_ObjectUnlock(vp);
 }
 
 static void
@@ -176,27 +212,22 @@ Init(void *obj)
 	VS_Player *vp = obj;
 	int i;
 
-	vp->vv = NULL;
+	vp->clip = NULL;
 	vp->wPre = 320;
 	vp->hPre = 240 + vsPlayerButtonHeight;
-	vp->xOffsLast = -1;
+	vp->xLast = -1;
 	vp->suScaled = -1;
 
-	vp->btn[VS_PLAYER_REW] = AG_ButtonNewFn(vp, 0,
-	    _("Rew"), Rewind, "%p", vp);
-	vp->btn[VS_PLAYER_PLAY] = AG_ButtonNewFn(vp, AG_BUTTON_STICKY,
-	    _("Play"), Play, "%p", vp);
-	vp->btn[VS_PLAYER_STOP] = AG_ButtonNewFn(vp, 0,
-	    _("Stop"), Stop, "%p", vp);
-	vp->btn[VS_PLAYER_FWD] = AG_ButtonNewFn(vp, 0,
-	    _("Fwd"), Forward, "%p", vp);
-	vp->btn[VS_PLAYER_REC] = AG_ButtonNewFn(vp, AG_BUTTON_STICKY,
-	    _("Rec"), Record, "%p", vp);
-	
-	for (i = 0; i < VS_PLAYER_SINE_SIZE; i++) {
-		vp->sine[i] = (int) (sin(((double)i/(double)VS_PLAYER_SINE_SIZE)*M_PI*2.0)*10000.0);
-	}
-	vp->sinePhase = 0;
+	vp->btn[VS_PLAYER_REW] = AG_ButtonNewFn(vp, 0, _("Rew"),
+	    Rewind, "%p", vp);
+	vp->btn[VS_PLAYER_PLAY] = AG_ButtonNewFn(vp, AG_BUTTON_STICKY, _("Play"),
+	    Play, "%p", vp);
+	vp->btn[VS_PLAYER_STOP] = AG_ButtonNewFn(vp, 0, _("Stop"),
+	    Stop, "%p", vp);
+	vp->btn[VS_PLAYER_FWD] = AG_ButtonNewFn(vp, 0, _("Fwd"),
+	    Forward, "%p", vp);
+	vp->btn[VS_PLAYER_REC] = AG_ButtonNewFn(vp, AG_BUTTON_STICKY, _("Rec"),
+	    Record, "%p", vp);
 }
 
 static void
@@ -219,17 +250,17 @@ SizeAllocate(void *obj, const AG_SizeAlloc *a)
 	vp->rVid.x = 0;
 	vp->rVid.y = 0;
 	vp->rVid.w = a->w;
-	vp->rVid.h = MIN(a->w, a->h);
+	vp->rVid.h = MIN(a->w, a->h) - vsPlayerButtonHeight;
 	vp->flags |= VS_PLAYER_REFRESH;
 
-	aBtn.x = 0;
+	aBtn.x = 1;
 	aBtn.y = a->h - vsPlayerButtonHeight;
 	aBtn.w = wBtn;
 	aBtn.h = vsPlayerButtonHeight;
 
 	for (i = 0; i < VS_PLAYER_LASTBTN; i++) {
 		AG_WidgetSizeAlloc(vp->btn[i], &aBtn);
-		aBtn.x += wBtn;
+		aBtn.x += wBtn + 1;
 	}
 	return (0);
 }
@@ -277,20 +308,16 @@ my_error_exit(j_common_ptr cinfo)
 	longjmp(myerr->setjmp_buffer, 1);
 }
 static void
-DrawFromJPEG(VS_Player *vp, VS_Clip *vc, VS_Frame *vf)
+DrawFromJPEG(VS_Player *vp, VS_Clip *v, VS_Frame *vf)
 {
 	char path[AG_PATHNAME_MAX];
-	char file[AG_FILENAME_MAX];
 	FILE *f;
 	struct jpeg_decompress_struct cinfo;
 	struct my_error_mgr jerr;
 	JSAMPROW pRow[1];
 	AG_Surface *su = NULL, *suScaled;
 
-	snprintf(file, sizeof(file), vc->fileFmt, vf->f);
-	Strlcpy(path, vsInputDir, sizeof(path));
-	Strlcat(path, "/", sizeof(path));
-	Strlcat(path, file, sizeof(path));
+	snprintf(path, sizeof(path), v->fileFmt, v->dir, vf->f);
 	if ((f = fopen(path, "r")) == NULL)
 		return;
 
@@ -303,7 +330,7 @@ DrawFromJPEG(VS_Player *vp, VS_Clip *vc, VS_Frame *vf)
 
 	jpeg_create_decompress(&cinfo);
 	jpeg_stdio_src(&cinfo, f);
-	(void)jpeg_read_header(&cinfo, TRUE);
+	jpeg_read_header(&cinfo, TRUE);
 
 	/* Allocate Agar surface */
 	if (cinfo.num_components == 4) {
@@ -349,7 +376,7 @@ DrawFromJPEG(VS_Player *vp, VS_Clip *vc, VS_Frame *vf)
 		goto fail_free;
 
 	/* Start decompression */
-	(void)jpeg_start_decompress(&cinfo);
+	jpeg_start_decompress(&cinfo);
 	
 	while (cinfo.output_scanline < su->h) {
 		pRow[0] = (JSAMPROW)(Uint8 *)su->pixels +
@@ -372,7 +399,7 @@ DrawFromJPEG(VS_Player *vp, VS_Clip *vc, VS_Frame *vf)
 	}
 	AG_SurfaceFree(su);
 
-	(void)jpeg_finish_decompress(&cinfo);
+	jpeg_finish_decompress(&cinfo);
 	jpeg_destroy_decompress(&cinfo);
 	return;
 fail_free:
@@ -381,7 +408,7 @@ fail_free:
 		vp->suScaled = -1;
 	}
 	if (su != NULL) { AG_SurfaceFree(su); }
-	(void)jpeg_finish_decompress(&cinfo);
+	jpeg_finish_decompress(&cinfo);
 	jpeg_destroy_decompress(&cinfo);
 }
 
@@ -389,42 +416,44 @@ static void
 Draw(void *obj)
 {
 	VS_Player *vp = obj;
-	VS_View *vv = vp->vv;
-	VS_Clip *vc;
+	VS_Clip *v = vp->clip;
+	VS_Project *vsp = v->proj;
 	int i;
 	
-	if (vsProcOp != VS_PROC_IDLE)
-		return;
+	AG_ObjectLock(vsp);
+	if (vsp->procOp != VS_PROC_IDLE ||
+	    v->x >= v->n) {
+		AG_Color c;
 
-	AG_ObjectLock(vv);
-
-	if ((vc = vv->clip) == NULL ||
-	    vv->xOffs < 0 || vv->xOffs >= vc->n) {
+		AG_ColorBlack(&c);
+		AG_DrawBox(vp, &vp->rVid, -1, &c);
 		goto out;
 	}
-	if (vp->xOffsLast != vv->xOffs ||
-	    vp->flags & VS_PLAYER_REFRESH) {
-		vp->xOffsLast = vv->xOffs;
-		if (vv->xOffs < vv->clip->n) {
-			DrawFromThumb(vp, vv->clip->frames[vv->xOffs].thumb);
+	if (vsPlayerLOD) {
+		if (vp->xLast != v->x ||
+		    vp->flags & VS_PLAYER_REFRESH) {
+			vp->xLast = v->x;
+			DrawFromThumb(vp, v->frames[v->x].thumb);
+			vp->flags &= ~(VS_PLAYER_REFRESH|VS_PLAYER_LOD);
+		} else {
+			if (!(vp->flags & VS_PLAYER_LOD) &&
+			    vp->lodTimeout++ > 5) {
+				vp->lodTimeout = 0;
+				vp->flags |= VS_PLAYER_LOD;
+				DrawFromJPEG(vp, v, &v->frames[v->x]);
+			}
 		}
-		vp->flags &= ~(VS_PLAYER_REFRESH|VS_PLAYER_LOD);
 	} else {
-		if (!(vp->flags & VS_PLAYER_LOD) &&
-		    vp->lodTimeout++ > 5) {
-			vp->lodTimeout = 0;
-			vp->flags |= VS_PLAYER_LOD;
-			DrawFromJPEG(vp, vv->clip, &vv->clip->frames[vv->xOffs]);
-		}
+		DrawFromJPEG(vp, v, &v->frames[v->x]);
 	}
-	AG_DrawBox(vp, vp->rVid, -1, AG_ColorRGB(0,0,0));
-	AG_PushClipRect(vp, vp->rVid);
+
+	AG_PushClipRect(vp, &vp->rVid);
 	if (vp->suScaled != -1) {
 		AG_WidgetBlitSurface(vp, vp->suScaled, 0, 0);
 	}
 	AG_PopClipRect(vp);
 out:
-	AG_ObjectUnlock(vv);
+	AG_ObjectUnlock(vsp);
 
 	for (i = 0; i < VS_PLAYER_LASTBTN; i++)
 		AG_WidgetDraw(vp->btn[i]);
@@ -440,28 +469,26 @@ AudioUpdateStereo(const void *pIn, void *pOut, Ulong count,
     void *pData)
 {
 	VS_Player *vp = pData;
-	VS_Clip *vc = vp->vv->clip;
+	VS_Clip *v = vp->clip;
 	float *out = (float *)pOut;
 	int ch;
 	Ulong i;
 
 	for (i = 0; i < count; i++) {
-		if (vc->sndPos+1 >= vc->sndInfo.frames*2) {
+		if (v->sndPos+1 >= v->sndInfo.frames*2) {
 			*out++ = 0;
 			*out++ = 0;
 			continue;
 		}
-		*out++ = vc->sndBuf[vc->sndPos];
-		*out++ = vc->sndBuf[vc->sndPos+1];
-		vc->sndPos++;
+		*out++ = v->sndBuf[v->sndPos];
+		*out++ = v->sndBuf[v->sndPos+1];
+		v->sndPos+=2;
 	}
 
-	if (vsPlayerEnableComp) {
-		vsPlayerCompensation = vc->sndPos - vp->vv->xOffs*vc->samplesPerFrame;
-		if (vsPlayerCompensation > vc->samplesPerFrame*2 ||
-		    vsPlayerCompensation < vc->samplesPerFrame*2) {
-			vc->sndPos = vp->vv->xOffs*vc->samplesPerFrame;
-		}
+	v->drift = v->sndPos - v->x*v->samplesPerFrame;
+	if (v->drift > v->samplesPerFrame*2 ||
+	    v->drift < v->samplesPerFrame*2) {
+		v->sndPos = v->x*v->samplesPerFrame;
 	}
 	return (paContinue);
 }
@@ -472,25 +499,23 @@ AudioUpdateMono(const void *pIn, void *pOut, Ulong count,
     void *pData)
 {
 	VS_Player *vp = pData;
-	VS_Clip *vc = vp->vv->clip;
+	VS_Clip *v = vp->clip;
 	float *out = (float *)pOut;
 	Ulong i;
 	
 	for (i = 0; i < count; i++) {
-		if (vc->sndPos+1 >= vc->sndInfo.frames) {
+		if (v->sndPos+1 >= v->sndInfo.frames) {
 			*out++ = 0;
 			continue;
 		}
-		*out++ = vc->sndBuf[vc->sndPos];
-		vc->sndPos++;
+		*out++ = v->sndBuf[v->sndPos];
+		v->sndPos++;
 	}
 
-	if (vsPlayerEnableComp) {
-		vsPlayerCompensation = vc->sndPos - vp->vv->xOffs*vc->samplesPerFrame;
-		if (vsPlayerCompensation > vc->samplesPerFrame*2 ||
-		    vsPlayerCompensation < vc->samplesPerFrame*2) {
-			vc->sndPos = vp->vv->xOffs*vc->samplesPerFrame;
-		}
+	v->drift = v->sndPos - v->x*v->samplesPerFrame;
+	if (v->drift > v->samplesPerFrame*2 ||
+	    v->drift < v->samplesPerFrame*2) {
+		v->sndPos = v->x*v->samplesPerFrame;
 	}
 	return (paContinue);
 }
@@ -499,7 +524,7 @@ AudioUpdateMono(const void *pIn, void *pOut, Ulong count,
 static void
 VS_PlayerAudioFinishedCallback(void *pData)
 {
-	VS_Clip *vc = pData;
+	VS_Clip *v = pData;
 
 	printf("audio finished!\n");
 }
@@ -509,13 +534,13 @@ VS_PlayerAudioFinishedCallback(void *pData)
 int
 VS_PlayAudio(VS_Player *vp)
 {
-	VS_Clip *vc = vp->vv->clip;
+	VS_Clip *v = vp->clip;
 	PaStreamParameters op;
 	PaError rv;
 
-	AG_MutexLock(&vc->sndLock);
+	AG_MutexLock(&v->sndLock);
 		
-	if (vc->sndBuf == NULL) {
+	if (v->sndBuf == NULL) {
 		AG_SetError("Clip has no audio");
 		goto fail;
 	}
@@ -523,24 +548,24 @@ VS_PlayAudio(VS_Player *vp)
 		AG_SetError("No audio output device");
 		goto fail;
 	}
-	if (vc->sndInfo.channels != 1 &&
-	    vc->sndInfo.channels != 2) {
-		AG_SetError("%d-Ch playback unimplemented", vc->sndInfo.channels);
+	if (v->sndInfo.channels != 1 &&
+	    v->sndInfo.channels != 2) {
+		AG_SetError("%d-Ch playback unimplemented", v->sndInfo.channels);
 		goto fail;
 	}
-	op.channelCount = vc->sndInfo.channels;
+	op.channelCount = v->sndInfo.channels;
 	op.sampleFormat = paFloat32;
 	op.suggestedLatency = Pa_GetDeviceInfo(op.device)->defaultLowOutputLatency;
 	op.hostApiSpecificStreamInfo = NULL;
 
 	rv = Pa_OpenStream(
-	    &vc->sndStream,
+	    &v->sndStream,
 	    NULL,
 	    &op,
-	    vc->sndInfo.samplerate,
-	    vc->samplesPerFrame,		/* frames per buffer */
+	    v->sndInfo.samplerate,
+	    v->samplesPerFrame,		/* frames per buffer */
 	    paClipOff,
-	    (vc->sndInfo.channels == 2) ? AudioUpdateStereo : AudioUpdateMono,
+	    (v->sndInfo.channels == 2) ? AudioUpdateStereo : AudioUpdateMono,
 	    vp);
 	if (rv != paNoError) {
 		AG_SetError("Failed to open playback device: %s",
@@ -549,46 +574,46 @@ VS_PlayAudio(VS_Player *vp)
 	}
 
 #if 0
-	rv = Pa_SetStreamFinishedCallback(vc->sndStream,
+	rv = Pa_SetStreamFinishedCallback(v->sndStream,
 	    VS_PlayerAudioFinishedCallback);
 	if (rv != paNoError)
 		goto pafail;
 #endif
 
-	rv = Pa_StartStream(vc->sndStream);
+	rv = Pa_StartStream(v->sndStream);
 	if (rv != paNoError)
 		goto pafail;
 
-	AG_MutexUnlock(&vc->sndLock);
+	AG_MutexUnlock(&v->sndLock);
 	return (0);
 pafail:
 	AG_SetError("PortAudio error: %s", Pa_GetErrorText(rv));
 fail:
-	AG_MutexUnlock(&vc->sndLock);
+	AG_MutexUnlock(&v->sndLock);
 	return (-1);
 }
 
 int
 VS_StopAudio(VS_Player *vp)
 {
-	VS_Clip *vc = vp->vv->clip;
+	VS_Clip *v = vp->clip;
 	PaError rv;
 
-	AG_MutexLock(&vc->sndLock);
+	AG_MutexLock(&v->sndLock);
 
-	if (vc->sndStream == NULL) {
+	if (v->sndStream == NULL) {
 		AG_SetError("Audio is not playing");
 		goto fail;
 	}
-	if ((rv = Pa_StopStream(vc->sndStream)) != paNoError) {
+	if ((rv = Pa_StopStream(v->sndStream)) != paNoError) {
 		AG_SetError("%s", Pa_GetErrorText(rv));
 		goto fail;
 	}
 
-	AG_MutexUnlock(&vc->sndLock);
+	AG_MutexUnlock(&v->sndLock);
 	return (0);
 fail:
-	AG_MutexUnlock(&vc->sndLock);
+	AG_MutexUnlock(&v->sndLock);
 	return (0);
 }
 
